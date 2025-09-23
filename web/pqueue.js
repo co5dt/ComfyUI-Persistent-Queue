@@ -93,9 +93,11 @@
         const pendingList = el('ul', { id: 'pqueue-pending', class: 'pqueue-list' });
         if (!state.queue_pending.length) pendingList.appendChild(el('li', { class: 'pqueue-empty', text: 'No pending items' }));
         state.queue_pending.forEach(item => {
+            const checked = state.selectedPending.has(item[1]);
             const li = el('li', { draggable: 'true', 'data-id': item[1], class: 'pqueue-item' }, [
                 el('div', { class: 'pqueue-meta' }, [
-                    el('i', { class: 'pi pi-clock' }),
+                    el('i', { class: 'pi pi-bars', style: 'cursor:grab' }),
+                    (() => { const cb = el('input', { type: 'checkbox', class: 'p-checkbox-input pqueue-select' }); if (checked) cb.checked = true; return cb; })(),
                     el('span', { text: item[1] })
                 ]),
                 el('div', { class: 'pqueue-actions' }, [
@@ -177,6 +179,14 @@
             const order = Array.from(list.querySelectorAll('li')).map(li => li.dataset.id);
             await API.reorder(order);
             await refresh();
+        });
+
+        list.querySelectorAll('.pqueue-select').forEach(cb => {
+            cb.onchange = (e) => {
+                const li = e.target.closest('li');
+                const id = li.dataset.id;
+                if (e.target.checked) state.selectedPending.add(id); else state.selectedPending.delete(id);
+            };
         });
 
         list.querySelectorAll('.pqueue-priority-save').forEach(btn => {
