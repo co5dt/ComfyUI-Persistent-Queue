@@ -20,6 +20,7 @@
         history: [],
         container: null,
         listPending: null,
+        selectedPending: new Set(),
     };
 
     function el(tag, attrs={}, children=[]) {
@@ -54,8 +55,15 @@
         pauseBtn.innerHTML = `<span class="p-button-icon pi ${state.paused ? 'pi-play' : 'pi-pause'}"></span><span class="p-button-label">${state.paused ? 'Resume' : 'Pause'}</span>`;
         const refreshBtn = el('button', { id: 'pqueue-refresh', class: 'p-button p-component p-button-text' });
         refreshBtn.innerHTML = `<span class="p-button-icon pi pi-refresh"></span><span class="p-button-label">Refresh</span>`;
+        const runningCount = el('span', { class: 'p-tag p-tag-rounded p-tag-info', text: `Running ${state.queue_running.length}` });
+        const pendingCount = el('span', { class: 'p-tag p-tag-rounded p-tag-secondary', text: `Pending ${state.queue_pending.length}` });
+        const clearBtn = el('button', { id: 'pqueue-clear', class: 'p-button p-component p-button-text p-button-danger' });
+        clearBtn.innerHTML = `<span class="p-button-icon pi pi-stop"></span><span class="p-button-label">Clear Pending</span>`;
         toolbar.appendChild(pauseBtn);
         toolbar.appendChild(refreshBtn);
+        toolbar.appendChild(runningCount);
+        toolbar.appendChild(pendingCount);
+        toolbar.appendChild(clearBtn);
 
         const sections = el('div', { class: 'pqueue-sections' });
 
@@ -140,6 +148,16 @@
             await refresh();
         };
         document.getElementById('pqueue-refresh').onclick = refresh;
+        const clearBtn = document.getElementById('pqueue-clear');
+        if (clearBtn) {
+            clearBtn.onclick = async () => {
+                const ids = Array.from(document.querySelectorAll('#pqueue-pending li[data-id]')).map(li => li.dataset.id);
+                if (ids.length) {
+                    await API.del(ids);
+                    await refresh();
+                }
+            };
+        }
 
         const list = document.getElementById('pqueue-pending');
         let dragged;
