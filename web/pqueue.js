@@ -120,15 +120,13 @@
         state.history.forEach(row => {
             const ok = (row.status||'success') === 'success';
             const thumbs = buildResultThumbs(row);
+            const time = buildDuration(row);
             const li = el('li', { class: 'pqueue-item' }, [
                 el('div', { class: 'pqueue-meta' }, [
-                    el('i', { class: `pi ${ok ? 'pi-check-circle pqueue-status-success' : 'pi-times-circle pqueue-status-error'}` }),
-                    el('span', { text: row.prompt_id })
+                    el('i', { class: `pi ${ok ? 'pi-check pqueue-status-success' : 'pi-times pqueue-status-error'}` }),
+                    (time ? el('span', { class: 'task-time', text: time }) : el('span', {}))
                 ]),
-                el('div', { class: 'pqueue-actions' }, [
-                    el('span', { class: 'p-tag', text: ok ? 'success' : 'error' })
-                ]),
-                thumbs
+                el('div', { class: 'pqueue-thumbs-grid' }, thumbs.children.length ? Array.from(thumbs.children) : [])
             ]);
             historyList.appendChild(li);
         });
@@ -136,7 +134,9 @@
         historyCard.appendChild(historyBody);
 
         sections.appendChild(runningCard);
+        sections.appendChild(el('div', { class: 'pqueue-divider' }));
         sections.appendChild(pendingCard);
+        sections.appendChild(el('div', { class: 'pqueue-divider' }));
         sections.appendChild(historyCard);
 
         root.appendChild(toolbar);
@@ -232,11 +232,38 @@
                 const type = i.type || 'output';
                 const subfolder = i.subfolder || '';
                 const url = `/view?filename=${encodeURIComponent(filename)}&type=${encodeURIComponent(type)}${subfolder?`&subfolder=${encodeURIComponent(subfolder)}`:''}&preview=webp;50`;
-                const img = el('img', { src: url, style: 'width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border-color)' });
+                const img = el('img', { src: url, class: 'pqueue-thumb', title: filename });
+                img.onclick = () => openGallery(filename, type, subfolder);
                 wrap.appendChild(img);
             });
             return wrap;
         } catch(e) { return el('span', {}); }
+    }
+
+    function buildDuration(row) {
+        try {
+            const started = row.created_at || row.started_at;
+            const completed = row.completed_at;
+            if (!started || !completed) return '';
+            const t1 = new Date(started).getTime();
+            const t2 = new Date(completed).getTime();
+            if (!isFinite(t1) || !isFinite(t2)) return '';
+            const sec = Math.max(0, (t2 - t1) / 1000);
+            return `${sec.toFixed(2)}s`;
+        } catch(e) { return ''; }
+    }
+
+    function openGallery(filename, type, subfolder) {
+        try {
+            if (window.app && window.app.extensionManager && window.app.extensionManager.dialog) {
+                // Use the built-in image preview route; the core gallery opens via dialogs in the frontend
+                const url = `/view?filename=${encodeURIComponent(filename)}&type=${encodeURIComponent(type)}${subfolder?`&subfolder=${encodeURIComponent(subfolder)}`:''}`;
+                window.open(url, '_blank');
+                return;
+            }
+        } catch(e) {}
+        const url = `/view?filename=${encodeURIComponent(filename)}&type=${encodeURIComponent(type)}${subfolder?`&subfolder=${encodeURIComponent(subfolder)}`:''}`;
+        window.open(url, '_blank');
     }
 
     async function refresh() {
