@@ -170,6 +170,87 @@ class PersistentQueueManager:
         self.resume_queue()
         return web.json_response({"paused": False})
 
+    async def _api_reorder(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+            order: List[str] = body.get("order", [])
+            self._rebuild_queue_by_prompt_ids(order)
+            return web.json_response({"ok": True})
+        except Exception as e:
+            logging.warning(f"PersistentQueue reorder failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+    async def _api_priority(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+            prompt_id: str = body.get("prompt_id")
+            priority: int = int(body.get("priority"))
+            if not prompt_id:
+                return web.json_response({"ok": False, "error": "prompt_id required"}, status=400)
+            self.db.update_job_priority(prompt_id, priority)
+            # Apply DB priority to in-memory queue
+            self._apply_priority_to_pending()
+            return web.json_response({"ok": True})
+        except Exception as e:
+            logging.warning(f"PersistentQueue set priority failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+    async def _api_delete(self, request: web.Request) -> web.Response:
+        try:
+            from server import PromptServer
+            body = await request.json()
+            prompt_ids: List[str] = body.get("prompt_ids", [])
+            q = PromptServer.instance.prompt_queue
+            for pid in prompt_ids:
+                self.db.remove_job(pid)
+                def match(item):
+                    return item[1] == pid
+                q.delete_queue_item(match)
+            return web.json_response({"ok": True})
+        except Exception as e:
+            logging.warning(f"PersistentQueue delete failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+    def _rebuild_queue_by_prompt_ids(self, ordered_prompt_ids: List[str]) -> None:
+        from server import PromptServer
+        q = PromptServer.instance.prompt_queue
+        with q.mutex:
+            # Map current pending items by prompt_id
+            by_id: Dict[str, Tuple] = {}
+            for item in q.queue:
+                # item: (number, prompt_id, prompt, extra_data, outputs_to_execute)
+                by_id[item[1]] = item
+
+            # Build new ordered list; preserve items not specified at the end by current order
+            specified = [pid for pid in ordered_prompt_ids if pid in by_id]
+            unspecified = [it for it in q.queue if it[1] not in set(specified)]
+
+            # Assign new numbers so the new order executes first
+            new_items: List[Tuple] = []
+            next_num = -len(specified) if len(specified) > 0 else 0
+            for pid in specified:
+                old = by_id[pid]
+                new_items.append((next_num, old[1], old[2], old[3], old[4]))
+                next_num += 1
+
+            # Append unspecified with their existing relative order but after specified
+            base = next_num
+            for idx, old in enumerate(sorted(unspecified, key=lambda x: x[0])):
+                new_items.append((base + idx, old[1], old[2], old[3], old[4]))
+
+            q.queue = new_items
+            heapq.heapify(q.queue)
+            q.server.queue_updated()
+
+    def _apply_priority_to_pending(self) -> None:
+        """Rebuild in-memory queue using DB priority DESC, then created_at ASC."""
+        from server import PromptServer
+        q = PromptServer.instance.prompt_queue
+        pending = self.db.get_pending_jobs()
+        # order prompt_ids by priority desc, created_at asc
+        ordered_ids = [row["prompt_id"] for row in sorted(pending, key=lambda r: (-int(r.get("priority", 0)), r.get("created_at") or ""))]
+        self._rebuild_queue_by_prompt_ids(ordered_ids)
+
     def _install_api_routes(self):
         try:
             from server import PromptServer
@@ -179,6 +260,9 @@ class PersistentQueueManager:
                 web.get('/api/pqueue/history', self._api_get_history),
                 web.post('/api/pqueue/pause', self._api_pause),
                 web.post('/api/pqueue/resume', self._api_resume),
+                web.post('/api/pqueue/reorder', self._api_reorder),
+                web.patch('/api/pqueue/priority', self._api_priority),
+                web.post('/api/pqueue/delete', self._api_delete),
             ])
         except Exception as e:
             logging.debug(f"PersistentQueue add routes failed: {e}")
