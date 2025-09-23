@@ -119,6 +119,7 @@
         if (!state.history.length) historyList.appendChild(el('li', { class: 'pqueue-empty', text: 'No history' }));
         state.history.forEach(row => {
             const ok = (row.status||'success') === 'success';
+            const thumbs = buildResultThumbs(row);
             const li = el('li', { class: 'pqueue-item' }, [
                 el('div', { class: 'pqueue-meta' }, [
                     el('i', { class: `pi ${ok ? 'pi-check-circle pqueue-status-success' : 'pi-times-circle pqueue-status-error'}` }),
@@ -126,7 +127,8 @@
                 ]),
                 el('div', { class: 'pqueue-actions' }, [
                     el('span', { class: 'p-tag', text: ok ? 'success' : 'error' })
-                ])
+                ]),
+                thumbs
             ]);
             historyList.appendChild(li);
         });
@@ -207,6 +209,34 @@
                 await refresh();
             };
         });
+    }
+
+    function buildResultThumbs(row) {
+        try {
+            const wrap = el('div', { class: 'flex gap-1 flex-wrap' });
+            let outputs = row.outputs || {};
+            if (typeof outputs === 'string') {
+                try { outputs = JSON.parse(outputs); } catch(e) { outputs = {}; }
+            }
+            const images = [];
+            Object.values(outputs).forEach(v => {
+                if (v && typeof v === 'object') {
+                    const imgs = (v.images) || (v.ui && v.ui.images) || [];
+                    if (Array.isArray(imgs)) imgs.forEach(i => images.push(i));
+                } else if (Array.isArray(v)) {
+                    v.forEach(i => { if (i && (i.filename || i.name)) images.push(i); });
+                }
+            });
+            images.slice(0, 4).forEach(i => {
+                const filename = i.filename || i.name || '';
+                const type = i.type || 'output';
+                const subfolder = i.subfolder || '';
+                const url = `/view?filename=${encodeURIComponent(filename)}&type=${encodeURIComponent(type)}${subfolder?`&subfolder=${encodeURIComponent(subfolder)}`:''}&preview=webp;50`;
+                const img = el('img', { src: url, style: 'width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border-color)' });
+                wrap.appendChild(img);
+            });
+            return wrap;
+        } catch(e) { return el('span', {}); }
     }
 
     async function refresh() {
