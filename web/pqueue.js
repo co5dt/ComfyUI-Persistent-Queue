@@ -1783,13 +1783,17 @@
         state.isRefreshing = true;
         UI.updateToolbarStatus();
         try {
-            const [queue, history] = await Promise.all([API.getQueue(), API.getHistory(50)]);
+            // Use paginated history for initial load to respect filters
+            const [queue, paged] = await Promise.all([
+                API.getQueue(),
+                API.getHistoryPaginated(state.historyPaging?.params || { sort_by: "id", sort_dir: "desc", limit: 60 })
+            ]);
             state.paused = !!queue.paused;
             state.queue_running = queue.queue_running || [];
             state.queue_pending = queue.queue_pending || [];
             state.db_pending = queue.db_pending || [];
             state.running_progress = queue.running_progress || {};
-            state.history = history.history || [];
+            state.history = (paged && Array.isArray(paged.history)) ? paged.history : [];
             state.error = null;
 
             const index = new Map();
@@ -1831,8 +1835,10 @@
                 });
                 const last = state.history[state.history.length - 1];
                 state.historyPaging = state.historyPaging || { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: "id", sort_dir: "desc", limit: 60 } };
-                state.historyPaging.nextCursor = last ? { id: last.id, value: last.id } : null;
-                state.historyPaging.hasMore = true;
+                state.historyPaging.nextCursor = paged?.next_cursor || (last ? { id: last.id, value: last.id } : null);
+                state.historyPaging.hasMore = !!paged?.has_more;
+                // If filters active but server returned fewer than requested and has_more==false, keep sentinel hidden
+                if (!state.historyPaging.hasMore && state.dom.historySentinel) state.dom.historySentinel.style.display = "none";
             } catch (err) {
                 /* noop */
             }
