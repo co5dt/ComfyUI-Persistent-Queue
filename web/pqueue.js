@@ -39,6 +39,7 @@
         workflowCache: new Map(),
         durationByWorkflow: new Map(),
         dbIndex: new Map(),
+        workflowNameCache: new Map(),
         selectedPending: new Set(),
         filters: {
             pending: "",
@@ -512,9 +513,8 @@
             checkbox.checked = selected;
 
             const status = UI.statusBadge(db.status || "pending", { subtle: true });
-            const priority = Number(db.priority ?? 0);
-            const priorityChip = UI.el("span", { class: "pqueue-chip pqueue-chip--outline", text: `P${priority}` });
-            const primary = UI.el("div", { class: "pqueue-row__primary" }, [UI.icon("ti ti-drag-drop", { size: "sm" }), checkbox, UI.el("span", { class: "pqueue-code", text: pid }), status, priorityChip]);
+            const primaryLabel = UI.buildWorkflowLabel(pid, item, db);
+            const primary = UI.el("div", { class: "pqueue-row__primary" }, [UI.icon("ti ti-drag-drop", { size: "sm" }), checkbox, primaryLabel, status]);
             if (db.error) {
                 const err = UI.icon("ti ti-alert-triangle", { size: "sm" });
                 err.classList.add("pqueue-row__error");
@@ -584,7 +584,8 @@
         historyCard(row) {
             const card = UI.el("article", { class: "pqueue-history-card", title: Format.tooltip(row) });
             const header = UI.el("div", { class: "pqueue-history-card__header" }, [UI.statusBadge(row.status || "success"), UI.el("span", { class: "pqueue-history-card__time", text: row.completed_at ? Format.relative(row.completed_at) : Format.relative(row.created_at) })]);
-            const meta = UI.el("div", { class: "pqueue-history-card__meta" }, [UI.el("span", { class: "pqueue-code", text: row.prompt_id || "—" }), UI.el("span", { class: "pqueue-history-card__duration", text: Format.duration(Number(row.duration_seconds)) || "—" })]);
+            const fileLabel = UI.historyPrimaryFilename(row);
+            const meta = UI.el("div", { class: "pqueue-history-card__meta" }, [UI.el("span", { class: "pqueue-code", text: fileLabel }), UI.el("span", { class: "pqueue-history-card__duration", text: Format.duration(Number(row.duration_seconds)) || "—" })]);
             const thumbs = UI.renderThumbs(row);
             card.appendChild(header);
             card.appendChild(meta);
@@ -898,6 +899,50 @@
             }
         },
 
+        historyPrimaryFilename(row) {
+            try {
+                const images = UI.extractImages(row);
+                if (images.length && images[0]?.filename) {
+                    return images[0].filename;
+                }
+                if (row.prompt_id) return String(row.prompt_id);
+                return "Unnamed output";
+            } catch (err) {
+                return row.prompt_id ? String(row.prompt_id) : "Unnamed output";
+            }
+        },
+
+        deriveWorkflowLabel(item, dbRow) {
+            try {
+                const prompt = item?.[2];
+                if (prompt && typeof prompt === "object") {
+                    const name = prompt?.workflow?.name || prompt?.workflow?.title || prompt?.name;
+                    if (typeof name === "string" && name.trim()) return name.trim();
+                }
+                if (dbRow?.workflow) {
+                    try {
+                        const parsed = JSON.parse(dbRow.workflow);
+                        const name = parsed?.workflow?.name || parsed?.workflow?.title || parsed?.name;
+                        if (typeof name === "string" && name.trim()) return name.trim();
+                    } catch (err) {
+                        /* ignore */
+                    }
+                }
+            } catch (err) {
+                /* ignore */
+            }
+            return "Untitled workflow";
+        },
+
+        buildWorkflowLabel(pid, item, dbRow) {
+            let label = state.workflowNameCache.get(pid);
+            if (!label) {
+                label = UI.deriveWorkflowLabel(item, dbRow);
+                state.workflowNameCache.set(pid, label);
+            }
+            return UI.el("span", { class: "pqueue-row__label", text: label });
+        },
+
         ensureWorkflowModal() {
             if (UI.workflowOverlay) return;
             const overlay = UI.el("div", { class: "pqueue-modal" });
@@ -1193,22 +1238,23 @@
             }
         },
 
-        async bulkPriority() {
-            if (!state.selectedPending.size) return;
-            const value = window.prompt("Set priority for selected prompts", "0");
-            if (value === null) return;
-            const parsed = parseInt(value, 10);
-            if (Number.isNaN(parsed)) {
-                window.alert("Priority must be a number");
-                return;
-            }
+        async bulkPriority() {},
+        async moveSingle(id, where) {
             try {
-                await Promise.all(Array.from(state.selectedPending).map((id) => API.setPriority(id, parsed)));
-                setStatusMessage(`Updated priority for ${state.selectedPending.size} prompt${state.selectedPending.size === 1 ? "" : "s"}`);
+                const table = state.dom.pendingTable;
+                if (!table) return;
+                const ids = Array.from(table.querySelectorAll('.pqueue-row[data-id]')).map((r) => r.dataset.id);
+                const currentIndex = ids.indexOf(id);
+                if (currentIndex === -1) return;
+                ids.splice(currentIndex, 1);
+                if (where === 'top') ids.unshift(id);
+                else ids.push(id);
+                await API.reorder(ids);
+                setStatusMessage(where === 'top' ? 'Moved to top' : 'Moved to bottom');
                 await refresh({ skipIfBusy: true });
             } catch (err) {
-                console.error("pqueue: bulk priority failed", err);
-                state.error = err?.message || "Failed to set priority";
+                console.error('pqueue: move failed', err);
+                state.error = err?.message || 'Failed to move prompt';
                 UI.updateToolbarStatus();
             }
         },
@@ -1260,6 +1306,7 @@
             state.dbIndex = index;
 
             state.workflowCache = new Map();
+            state.workflowNameCache = new Map();
             state.queue_pending.forEach((item) => {
                 const pid = String(item[1] ?? "");
                 try {
@@ -1268,6 +1315,8 @@
                         const key = typeof wf === "string" ? wf : JSON.stringify(wf);
                         if (key) state.workflowCache.set(pid, key);
                     }
+                    const label = UI.deriveWorkflowLabel(item, index.get(pid));
+                    if (label) state.workflowNameCache.set(pid, label);
                 } catch (err) {
                     /* noop */
                 }
