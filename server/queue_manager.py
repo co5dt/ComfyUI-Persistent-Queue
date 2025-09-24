@@ -4,7 +4,7 @@ import logging
 import time
 import heapq
 import copy
-from typing import Optional, Any, Dict, Tuple, List
+from typing import Optional, Any, Dict, Tuple, List, Callable
 
 from aiohttp import web
 
