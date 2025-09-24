@@ -1670,14 +1670,98 @@
 
         toggleFiltersPopover(anchor) {
             try {
+                // If open, close and cleanup listeners
                 if (state.dom.filtersPopover) {
-                    state.dom.filtersPopover.remove();
+                    const pop = state.dom.filtersPopover;
+                    if (state.dom.filtersPopoverListeners) {
+                        const { onDocPointer, onResize, onScroll } = state.dom.filtersPopoverListeners;
+                        if (onDocPointer) document.removeEventListener('pointerdown', onDocPointer, true);
+                        if (onResize) window.removeEventListener('resize', onResize);
+                        if (onScroll) window.removeEventListener('scroll', onScroll, true);
+                        state.dom.filtersPopoverListeners = null;
+                    }
+                    pop.remove();
                     state.dom.filtersPopover = null;
                     return;
                 }
+
                 const pop = UI.buildFiltersPopover(anchor);
                 document.body.appendChild(pop);
                 state.dom.filtersPopover = pop;
+
+                // Positioning function to keep popover within viewport
+                const position = () => {
+                    try {
+                        const margin = 10;
+                        const rect = anchor.getBoundingClientRect();
+                        const viewportW = window.innerWidth;
+                        const viewportH = window.innerHeight;
+                        const scrollX = window.scrollX;
+                        const scrollY = window.scrollY;
+
+                        // reset classes and styles affecting size
+                        pop.classList.remove('pqueue-popover--above');
+                        pop.style.maxHeight = '80vh';
+
+                        const popW = pop.offsetWidth;
+                        const popH = pop.offsetHeight;
+
+                        const anchorCenter = rect.left + rect.width / 2 + scrollX;
+                        let left = Math.round(anchorCenter - popW / 2);
+                        left = Math.max(scrollX + margin, Math.min(left, scrollX + viewportW - popW - margin));
+
+                        // Prefer below; flip above if overflowing bottom
+                        let top = rect.bottom + margin + scrollY;
+                        const bottomOverflow = (top + popH) - (scrollY + viewportH - margin);
+                        if (bottomOverflow > 0) {
+                            const aboveTop = rect.top + scrollY - popH - margin;
+                            if (aboveTop >= scrollY + margin) {
+                                top = aboveTop;
+                                pop.classList.add('pqueue-popover--above');
+                            } else {
+                                // Clamp within viewport if neither fits perfectly
+                                top = Math.max(scrollY + margin, Math.min(top, scrollY + viewportH - popH - margin));
+                            }
+                        }
+
+                        pop.style.left = `${left}px`;
+                        pop.style.top = `${top}px`;
+
+                        // Position arrow
+                        const arrow = pop.querySelector('.pqueue-popover__arrow');
+                        if (arrow) {
+                            const popLeft = left;
+                            const offset = Math.max(14, Math.min(anchorCenter - popLeft, popW - 14));
+                            arrow.style.left = `${offset}px`;
+                        }
+                    } catch (err) { /* noop */ }
+                };
+
+                // Outside click/tap closes popover
+                const onDocPointer = (ev) => {
+                    try {
+                        if (!state.dom.filtersPopover) return;
+                        const target = ev.target;
+                        if (state.dom.filtersPopover.contains(target)) return;
+                        if (anchor && (target === anchor || (anchor.contains && anchor.contains(target)))) return;
+                        // Close
+                        document.removeEventListener('pointerdown', onDocPointer, true);
+                        window.removeEventListener('resize', onResize);
+                        window.removeEventListener('scroll', onScroll, true);
+                        state.dom.filtersPopoverListeners = null;
+                        state.dom.filtersPopover.remove();
+                        state.dom.filtersPopover = null;
+                    } catch (err) { /* noop */ }
+                };
+                const onResize = () => position();
+                const onScroll = () => position();
+                document.addEventListener('pointerdown', onDocPointer, true);
+                window.addEventListener('resize', onResize);
+                window.addEventListener('scroll', onScroll, true);
+                state.dom.filtersPopoverListeners = { onDocPointer, onResize, onScroll };
+
+                // Initial position
+                position();
             } catch (err) {
                 /* noop */
             }
