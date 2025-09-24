@@ -114,7 +114,7 @@ class QueueDatabase:
                     ''',
                     (status, datetime.now(), prompt_id),
                 )
-            elif status in ('completed', 'failed'):
+            elif status in ('completed', 'failed', 'interrupted'):
                 conn.execute(
                     '''
                     UPDATE queue_items 

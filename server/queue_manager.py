@@ -242,7 +242,10 @@ class PersistentQueueManager:
             prompt = item[2]
             status_str = status.status_str if status is not None else 'success'
             completed = (status.completed if status is not None else True)
-            new_state = 'completed' if completed else 'failed'
+            cancelled = isinstance(status_str, str) and status_str.lower() in ('cancelled', 'canceled', 'interrupted', 'cancel')
+            new_state = 'completed'
+            if not completed:
+                new_state = 'interrupted' if cancelled else 'failed'
             # Persist history and thumbnails BEFORE notifying original logic, to avoid UI race
             self.db.update_job_status(prompt_id, new_state, error=None if completed else status_str)
             history_id = self.db.add_history(
