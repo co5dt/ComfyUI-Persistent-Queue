@@ -428,88 +428,29 @@
         state.running_progress = q.running_progress || {};
         const h = await API.getHistory(50);
         state.history = h.history || [];
-        render();
+        UI.render();
     }
 
-    // Mount a simple panel into the existing UI sidebar if possible
-    function ensureStyles() {
-        if (document.getElementById('pqueue-styles')) return;
-        const style = document.createElement('style');
-        style.id = 'pqueue-styles';
-        style.textContent = `
-        #pqueue-fab{position:fixed;right:16px;bottom:16px;z-index:99999;background:#2d2f34;color:#fff;border:none;border-radius:20px;padding:8px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.35)}
-        #pqueue-panel{position:fixed;right:16px;top:64px;z-index:99998;width:420px;max-width:90vw;height:65vh;background:#1c1d20;color:#ddd;border:1px solid #333;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.5);display:none;flex-direction:column}
-        #pqueue-panel header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #333}
-        #pqueue-panel .pqueue-content{padding:8px 12px;overflow:auto;height:100%}
-        #pqueue-panel ul{list-style:none;margin:0;padding:0}
-        #pqueue-panel li{display:flex;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px dashed #2c2c2c}
-        #pqueue-panel .pqueue-item{cursor:grab}
-        #pqueue-panel .pqueue-section{margin-bottom:10px}
-        `;
-        document.head.appendChild(style);
-    }
-
-    function mount() {
-        if (state.container) return;
-        ensureStyles();
-        // Floating button
-        const fab = document.createElement('button');
-        fab.id = 'pqueue-fab';
-        fab.textContent = 'Persistent Queue';
-        fab.onclick = () => {
-            const panel = document.getElementById('pqueue-panel');
-            if (!panel) return;
-            const visible = panel.style.display !== 'none';
-            panel.style.display = visible ? 'none' : 'flex';
-            if (!visible) refresh();
-        };
-        document.body.appendChild(fab);
-
-        const panel = el('div', { id: 'pqueue-panel', class: 'pqueue-panel' });
-        const header = document.createElement('header');
-        const title = document.createElement('div');
-        title.textContent = 'Persistent Queue';
-        const close = document.createElement('button');
-        close.textContent = '×';
-        close.onclick = () => { panel.style.display = 'none'; };
-        header.appendChild(title);
-        header.appendChild(close);
-        panel.appendChild(header);
-        state.container = el('div', { class: 'pqueue-content' });
-        panel.appendChild(state.container);
-        document.body.appendChild(panel);
-        refresh();
-    }
-
-    // Listen to ComfyUI WS events to auto-refresh
-    function setupSocketRefresh() {
-        const hooked = tryHookWebsocket();
-        if (!hooked) {
-            window.addEventListener('focus', () => refresh());
-            setInterval(() => { refresh(); }, 3000);
-        }
-    }
-
-    function tryHookWebsocket() {
+    function setupSocketListeners() {
         try {
-            const api = (window.app && window.app.api && typeof window.app.api.addEventListener === 'function') ? window.app.api : null;
-            if (!api) return false;
+            const api = window.app?.api;
+            if (!api || typeof api.addEventListener !== 'function') {
+                console.warn('pqueue: WebSocket API not found, falling back to polling.');
+                return false;
+            }
 
             const onProgressState = (ev) => {
                 try {
-                    const payload = ev && ev.detail ? ev.detail : ev;
-                    if (!payload || !payload.prompt_id || !payload.nodes) return;
-                    state.running_progress[payload.prompt_id] = computeAggregateProgress(payload.nodes);
-                    updateProgressBarsFromState();
-                } catch(e) { /* ignore */ }
+                    const payload = ev?.detail;
+                    if (!payload?.prompt_id || !payload.nodes) return;
+                    state.running_progress[payload.prompt_id] = Progress.computeAggregateProgress(payload.nodes);
+                    UI.updateProgressBarsFromState();
+                } catch (e) { /* ignore */ }
             };
 
-            const onQueueOrExecChange = () => { refresh(); };
+            const onQueueOrExecChange = () => refresh();
 
             api.addEventListener('progress_state', onProgressState);
-            // Legacy progress event (non-aggregated); ignore or do minimal update if needed
-            api.addEventListener('progress', (ev) => { /* no-op; prefer progress_state */ });
-            // Queue/lifecycle updates
             api.addEventListener('status', onQueueOrExecChange);
             api.addEventListener('executing', onQueueOrExecChange);
             api.addEventListener('executed', onQueueOrExecChange);
