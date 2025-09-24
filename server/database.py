@@ -54,6 +54,19 @@ class QueueDatabase:
                     status TEXT
                 )
             ''')
+            # Thumbnails for job history entries
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS history_thumbs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    history_id INTEGER NOT NULL,
+                    idx INTEGER NOT NULL,
+                    mime TEXT DEFAULT 'image/webp',
+                    width INTEGER,
+                    height INTEGER,
+                    data BLOB NOT NULL,
+                    UNIQUE(history_id, idx)
+                )
+            ''')
             # No schema migrations for now; keep it simple
     
     def add_job(self, prompt_id: str, workflow: dict, priority: int = 0) -> None:
@@ -181,6 +194,39 @@ class QueueDatabase:
                     status,
                 ),
             )
+            return int(cur.lastrowid)
+
+    def save_history_thumbnails(self, history_id: int, thumbs: List[Dict[str, Any]]) -> None:
+        """Store one or more thumbnails for a history row. Each item: {idx, mime, width, height, data(bytes)}"""
+        if not thumbs:
+            return
+        with self._get_conn() as conn:
+            for t in thumbs:
+                conn.execute(
+                    '''
+                    INSERT OR REPLACE INTO history_thumbs (history_id, idx, mime, width, height, data)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        int(history_id),
+                        int(t.get('idx', 0)),
+                        t.get('mime', 'image/webp'),
+                        int(t.get('width') or 0),
+                        int(t.get('height') or 0),
+                        t.get('data'),
+                    )
+                )
+
+    def get_history_thumbnail(self, history_id: int, idx: int = 0) -> Optional[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                'SELECT mime, width, height, data FROM history_thumbs WHERE history_id = ? AND idx = ? LIMIT 1',
+                (int(history_id), int(idx))
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return { 'mime': row['mime'], 'width': row['width'], 'height': row['height'], 'data': row['data'] }
 
     def list_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
