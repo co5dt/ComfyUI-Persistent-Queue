@@ -135,7 +135,7 @@ class QueueDatabase:
         outputs: Optional[dict],
         status: str,
         duration_seconds: Optional[float] = None,
-    ) -> None:
+    ) -> int:
         with self._get_conn() as conn:
             # Prefer accurate timestamps from queue_items when available
             def _parse_dt(val: Any) -> Optional[datetime]:
@@ -179,7 +179,7 @@ class QueueDatabase:
             if completed_at is None:
                 completed_at = created_at
 
-            conn.execute(
+            cur = conn.execute(
                 '''
                 INSERT INTO job_history (prompt_id, workflow, outputs, duration_seconds, created_at, completed_at, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?)

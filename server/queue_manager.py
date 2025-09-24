@@ -69,7 +69,6 @@ class PersistentQueueManager:
             def task_done_wrapper(q_self, item_id, history_result, status):
                 # Capture before original pops it
                 item = q_self.currently_running.get(item_id)
-                self._original_task_done(q_self, item_id, history_result, status)
                 try:
                     if item is not None:
                         prompt_id = item[1]
