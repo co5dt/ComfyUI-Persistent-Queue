@@ -967,37 +967,95 @@
         },
 
         buildFiltersPopover(anchor) {
-            const since = UI.el("input", { type: "date", class: "pqueue-input", value: state.filters?.historySince || "" });
-            const sinceTime = UI.el("input", { type: "time", class: "pqueue-input", value: state.filters?.historySinceTime || "" });
-            const until = UI.el("input", { type: "date", class: "pqueue-input", value: state.filters?.historyUntil || "" });
-            const untilTime = UI.el("input", { type: "time", class: "pqueue-input", value: state.filters?.historyUntilTime || "" });
+            const since = UI.el("input", { type: "date", class: "pqueue-input", value: state.filters?.historySince || "", id: "pqueue-since-date" });
+            const sinceTime = UI.el("input", { type: "time", class: "pqueue-input", value: state.filters?.historySinceTime || "", id: "pqueue-since-time", step: "1" });
+            const until = UI.el("input", { type: "date", class: "pqueue-input", value: state.filters?.historyUntil || "", id: "pqueue-until-date" });
+            const untilTime = UI.el("input", { type: "time", class: "pqueue-input", value: state.filters?.historyUntilTime || "", id: "pqueue-until-time", step: "1" });
             const onChange = () => Events.updateHistoryDateFilters(since.value, until.value, sinceTime.value, untilTime.value);
-            since.addEventListener("change", onChange);
-            sinceTime.addEventListener("change", onChange);
-            until.addEventListener("change", onChange);
-            untilTime.addEventListener("change", onChange);
+            [since, sinceTime, until, untilTime].forEach((el) => el.addEventListener("change", onChange));
 
-            const presets = UI.el("div", { class: "pqueue-popover__section" }, [
+            // store DOM refs so presets can reflect UI immediately
+            state.dom.historySince = since;
+            state.dom.historySinceTime = sinceTime;
+            state.dom.historyUntil = until;
+            state.dom.historyUntilTime = untilTime;
+
+            const dates = UI.el("div", { class: "pqueue-popover__grid" }, [
+                UI.el("label", { class: "pqueue-field" }, [UI.el("span", { class: "pqueue-field__label", text: "Since date" }), since]),
+                UI.el("label", { class: "pqueue-field" }, [UI.el("span", { class: "pqueue-field__label", text: "Since time" }), sinceTime]),
+                UI.el("label", { class: "pqueue-field" }, [UI.el("span", { class: "pqueue-field__label", text: "Until date" }), until]),
+                UI.el("label", { class: "pqueue-field" }, [UI.el("span", { class: "pqueue-field__label", text: "Until time" }), untilTime]),
+            ]);
+
+            const presets = UI.el("div", { class: "pqueue-popover__section pqueue-popover__presets" }, [
                 UI.button({ text: "Today", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("today") }),
                 UI.button({ text: "Last 24h", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("24h") }),
                 UI.button({ text: "Last 7d", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("7d") }),
                 UI.button({ text: "Clear", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("clear") }),
             ]);
 
-            const dates = UI.el("div", { class: "pqueue-popover__grid" }, [since, sinceTime, until, untilTime]);
+            const header = UI.el('div', { class: 'pqueue-popover__header' }, [
+                UI.el('div', { class: 'pqueue-popover__title', text: 'History filters' }),
+                UI.el('div', { class: 'pqueue-popover__hint', text: 'Local timezone applied' }),
+                UI.button({ icon: 'ti ti-x', variant: 'ghost', subtle: true, title: 'Close', onClick: () => { pop?.remove(); state.dom.filtersPopover = null; } })
+            ]);
 
-            const pop = UI.el('div', { class: 'pqueue-popover' }, [
+            const footer = UI.el('div', { class: 'pqueue-popover__footer' }, [
+                UI.el('div', { class: 'pqueue-popover__footer-left' }, [UI.el('span', { class: 'pqueue-muted', text: UI.currentHistoryRangeLabel() })]),
+                UI.el('div', { class: 'pqueue-popover__footer-right' }, [
+                    UI.button({ text: 'Clear', variant: 'ghost', subtle: true, size: 'sm', onClick: () => Events.applyHistoryPreset('clear') }),
+                    UI.button({ text: 'Done', variant: 'secondary', size: 'sm', onClick: () => { pop?.remove(); state.dom.filtersPopover = null; } })
+                ])
+            ]);
+
+            const pop = UI.el('div', { class: 'pqueue-popover', role: 'dialog', 'aria-label': 'History filters' }, [
+                UI.el('div', { class: 'pqueue-popover__arrow' }),
+                header,
                 UI.el('div', { class: 'pqueue-popover__section' }, [UI.el('strong', { text: 'Date range' })]),
                 dates,
                 UI.el('div', { class: 'pqueue-popover__section' }, [UI.el('strong', { text: 'Presets' })]),
-                presets
+                presets,
+                footer
             ]);
-            // Position near anchor
+
+            // keyboard handling: Esc closes; Tab traps within
+            const keyHandler = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    pop.remove();
+                    state.dom.filtersPopover = null;
+                } else if (e.key === 'Tab') {
+                    const focusables = pop.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+                    const list = Array.from(focusables).filter((n) => !n.hasAttribute('disabled'));
+                    if (!list.length) return;
+                    const first = list[0];
+                    const last = list[list.length - 1];
+                    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+                }
+            };
+            pop.addEventListener('keydown', keyHandler);
+
+            // Position near anchor and align arrow
             try {
                 const rect = anchor.getBoundingClientRect();
-                pop.style.top = `${rect.bottom + 8 + window.scrollY}px`;
-                pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 360)}px`;
+                const maxLeft = window.innerWidth - 360;
+                const left = Math.min(rect.left + window.scrollX, maxLeft);
+                const top = rect.bottom + 8 + window.scrollY;
+                pop.style.top = `${top}px`;
+                pop.style.left = `${left}px`;
+                const arrow = pop.querySelector('.pqueue-popover__arrow');
+                if (arrow) {
+                    const anchorCenter = rect.left + rect.width / 2 + window.scrollX;
+                    const popLeft = left;
+                    const offset = Math.max(14, Math.min((anchorCenter - popLeft), 346));
+                    arrow.style.left = `${offset}px`;
+                }
             } catch (err) {}
+
+            // focus first input
+            window.setTimeout(() => since.focus(), 0);
+
             return pop;
         },
 
