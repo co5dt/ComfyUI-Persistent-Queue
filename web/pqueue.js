@@ -232,36 +232,53 @@
 
         buildResultThumbs(row) {
             try {
-                const wrap = UI.el('div', { class: 'flex gap-1 flex-wrap' });
-                let outputs = row.outputs ?? {};
-                if (typeof outputs === 'string') {
-                    try { outputs = JSON.parse(outputs); } catch(e) { outputs = {}; }
-                }
-                const images = [];
-                Object.values(outputs).forEach(v => {
-                    if (v && typeof v === 'object') {
-                        const imgs = v.images ?? v.ui?.images ?? [];
-                        if (Array.isArray(imgs)) imgs.forEach(i => images.push(i));
-                    } else if (Array.isArray(v)) {
-                        v.forEach(i => { if (i?.filename || i?.name) images.push(i); });
-                    }
-                });
-                images.slice(0, 4).forEach(i => {
-                    const filename = i.filename ?? i.name ?? '';
-                    const type = i.type ?? 'output';
-                    const subfolder = i.subfolder ?? '';
-                    const url = new URL('/view', window.location.origin);
-                    url.searchParams.set('filename', filename);
-                    url.searchParams.set('type', type);
-                    if (subfolder) url.searchParams.set('subfolder', subfolder);
-                    url.searchParams.set('preview', 'webp;50');
-                    const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: filename });
-                    img.onclick = () => UI.openGallery(filename, type, subfolder);
-                    wrap.appendChild(img);
-                });
-                return wrap;
+				const container = UI.el('div', { class: 'flex gap-1 flex-wrap' });
+				const images = UI.extractImages(row);
+				if (!images.length) return container;
+				const first = images[0];
+				const url = new URL('/view', window.location.origin);
+				url.searchParams.set('filename', first.filename);
+				url.searchParams.set('type', first.type);
+				if (first.subfolder) url.searchParams.set('subfolder', first.subfolder);
+				url.searchParams.set('preview', 'webp;50');
+				const thumbWrap = UI.el('div', { class: 'pqueue-thumb-wrap' });
+				const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: first.filename });
+				thumbWrap.appendChild(img);
+				if (images.length > 1) {
+					const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${images.length}` });
+					thumbWrap.appendChild(badge);
+				}
+				thumbWrap.onclick = () => UI.openGallery(images, 0);
+				container.appendChild(thumbWrap);
+				return container;
             } catch(e) { return UI.el('span', {}); }
         },
+
+		// Collect normalized image descriptors for a row
+		extractImages(row) {
+			try {
+				let outputs = row.outputs ?? {};
+				if (typeof outputs === 'string') {
+					try { outputs = JSON.parse(outputs); } catch(e) { outputs = {}; }
+				}
+				const images = [];
+				Object.values(outputs).forEach(v => {
+					if (v && typeof v === 'object') {
+						const imgs = v.images ?? v.ui?.images ?? [];
+						if (Array.isArray(imgs)) imgs.forEach(i => {
+							const filename = i.filename ?? i.name;
+							if (filename) images.push({ filename, type: i.type ?? 'output', subfolder: i.subfolder ?? '' });
+						});
+					} else if (Array.isArray(v)) {
+						v.forEach(i => {
+							const filename = i?.filename ?? i?.name;
+							if (filename) images.push({ filename, type: i.type ?? 'output', subfolder: i.subfolder ?? '' });
+						});
+					}
+				});
+				return images;
+			} catch(e) { return []; }
+		},
 
         buildDuration(row) {
             try {
@@ -280,13 +297,85 @@
             } catch(e) { return ''; }
         },
 
-        openGallery(filename, type, subfolder) {
-            const url = new URL('/view', window.location.origin);
-            url.searchParams.set('filename', filename);
-            url.searchParams.set('type', type);
-            if (subfolder) url.searchParams.set('subfolder', subfolder);
-            window.open(url.href, '_blank');
-        },
+		// Lightbox-style gallery for image batches
+		openGallery(images, startIndex = 0) {
+			try {
+				UI.ensureGalleryElements();
+				UI._galleryState.images = images || [];
+				UI._galleryState.index = Math.max(0, Math.min(startIndex, UI._galleryState.images.length - 1));
+				UI._galleryOverlay.style.display = 'flex';
+				UI.showGalleryImage(UI._galleryState.index);
+				UI._bindGalleryKeys(true);
+			} catch (e) { /* noop */ }
+		},
+
+		closeGallery() {
+			if (UI._galleryOverlay) UI._galleryOverlay.style.display = 'none';
+			UI._bindGalleryKeys(false);
+		},
+
+		showGalleryImage(index) {
+			const imgs = UI._galleryState.images || [];
+			if (!imgs.length) return;
+			UI._galleryState.index = (index + imgs.length) % imgs.length;
+			const imgDesc = imgs[UI._galleryState.index];
+			const url = new URL('/view', window.location.origin);
+			url.searchParams.set('filename', imgDesc.filename);
+			url.searchParams.set('type', imgDesc.type);
+			if (imgDesc.subfolder) url.searchParams.set('subfolder', imgDesc.subfolder);
+			UI._galleryImg.src = url.href;
+			UI._galleryCounter.textContent = `${UI._galleryState.index + 1} / ${imgs.length}`;
+		},
+
+		nextImage() { UI.showGalleryImage(UI._galleryState.index + 1); },
+		prevImage() { UI.showGalleryImage(UI._galleryState.index - 1); },
+
+		_bindGalleryKeys(enabled) {
+			const handler = (e) => {
+				if (UI._galleryOverlay?.style.display !== 'flex') return;
+				if (e.key === 'Escape') UI.closeGallery();
+				else if (e.key === 'ArrowRight') UI.nextImage();
+				else if (e.key === 'ArrowLeft') UI.prevImage();
+			};
+			if (enabled) {
+				UI._galleryKeyHandler = handler;
+				document.addEventListener('keydown', handler);
+			} else if (UI._galleryKeyHandler) {
+				document.removeEventListener('keydown', UI._galleryKeyHandler);
+				UI._galleryKeyHandler = null;
+			}
+		},
+
+		ensureGalleryElements() {
+			if (UI._galleryOverlay) return;
+			UI._galleryState = { images: [], index: 0 };
+			const overlay = UI.el('div', { class: 'pqueue-gallery-overlay' });
+			const box = UI.el('div', { class: 'pqueue-gallery' });
+			const closeBtn = UI.el('button', { class: 'pqueue-gallery-close', title: 'Close' });
+			closeBtn.textContent = '×';
+			const img = UI.el('img', { class: 'pqueue-gallery-img' });
+			const counter = UI.el('div', { class: 'pqueue-gallery-counter' });
+			const prev = UI.el('button', { class: 'pqueue-gallery-nav pqueue-gallery-prev', title: 'Previous' });
+			prev.textContent = '‹';
+			const next = UI.el('button', { class: 'pqueue-gallery-nav pqueue-gallery-next', title: 'Next' });
+			next.textContent = '›';
+
+			closeBtn.onclick = () => UI.closeGallery();
+			prev.onclick = () => UI.prevImage();
+			next.onclick = () => UI.nextImage();
+			overlay.onclick = (e) => { if (e.target === overlay) UI.closeGallery(); };
+
+			box.appendChild(closeBtn);
+			box.appendChild(img);
+			box.appendChild(counter);
+			box.appendChild(prev);
+			box.appendChild(next);
+			overlay.appendChild(box);
+			document.body.appendChild(overlay);
+			UI._galleryOverlay = overlay;
+			UI._galleryImg = img;
+			UI._galleryCounter = counter;
+		},
 
         ensureStyles() {
             if (document.getElementById('pqueue-styles')) return;
