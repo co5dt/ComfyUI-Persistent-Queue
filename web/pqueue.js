@@ -33,6 +33,27 @@
         return e;
     }
 
+    // Progress helpers
+    function computeAggregateProgress(nodes) {
+        let totalMax = 0;
+        let totalVal = 0;
+        Object.values(nodes || {}).forEach((st) => {
+            const mv = Math.max(1, Number((st && st.max) || 1));
+            const vv = Math.max(0, Math.min(Number((st && st.value) || 0), mv));
+            totalMax += mv;
+            totalVal += vv;
+        });
+        return totalMax > 0 ? Math.max(0, Math.min(1, totalVal / totalMax)) : 0;
+    }
+
+    function updateProgressBarsFromState() {
+        if (!state.container) return;
+        Object.entries(state.running_progress).forEach(([pid, f]) => {
+            const bar = state.container.querySelector(`.pqueue-item[data-id="${pid}"] .pqueue-progress-bar`);
+            if (bar) bar.style.width = `${(Number(f) * 100).toFixed(2)}%`;
+        });
+    }
+
     function ensureThemeLink() {
         if (!document.getElementById('pqueue-style-link')) {
             const link = document.createElement('link');
@@ -153,6 +174,7 @@
         state.container.appendChild(root);
 
         wireHandlers();
+        updateProgressBarsFromState();
     }
 
     function wireHandlers() {
@@ -359,28 +381,8 @@
                 try {
                     const payload = ev && ev.detail ? ev.detail : ev;
                     if (!payload || !payload.prompt_id || !payload.nodes) return;
-                    let totalMax = 0;
-                    let totalVal = 0;
-                    Object.values(payload.nodes).forEach((st) => {
-                        const mv = Math.max(1, Number((st && st.max) || 1));
-                        const vv = Math.max(0, Math.min(Number((st && st.value) || 0), mv));
-                        totalMax += mv;
-                        totalVal += vv;
-                    });
-                    const frac = totalMax > 0 ? Math.max(0, Math.min(1, totalVal / totalMax)) : 0;
-                    state.running_progress[payload.prompt_id] = frac;
-                    // Lightweight re-render: only update bars if present, otherwise full render
-                    if (state.container) {
-                        const bars = state.container.querySelectorAll('.pqueue-item[data-id] .pqueue-progress-bar');
-                        if (bars && bars.length) {
-                            Object.entries(state.running_progress).forEach(([pid, f]) => {
-                                const li = state.container.querySelector(`.pqueue-item[data-id="${pid}"] .pqueue-progress-bar`);
-                                if (li) li.style.width = `${(Number(f) * 100).toFixed(2)}%`;
-                            });
-                        } else {
-                            render();
-                        }
-                    }
+                    state.running_progress[payload.prompt_id] = computeAggregateProgress(payload.nodes);
+                    updateProgressBarsFromState();
                 } catch(e) { /* ignore */ }
             };
 
