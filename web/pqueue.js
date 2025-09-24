@@ -377,8 +377,7 @@
             if (!document.querySelector("link[data-pqueue-icons]")) {
                 const link = document.createElement("link");
                 link.rel = "stylesheet";
-                link.href = "https://unpkg.com/@tabler/icons-webfont@latest/tabler-icons.min.css";
-                link.crossOrigin = "anonymous";
+                link.href = "/extensions/ComfyUI-PersistentQueue/lib/tabler-icons.min.css";
                 link.dataset.pqueueIcons = "true";
                 document.head.appendChild(link);
             }
@@ -1607,7 +1606,7 @@
 
         const tab = {
             id: "persistent_queue",
-            icon: "ti ti-history",
+            icon: "ti ti-archive",
             title: "Persistent Queue",
             tooltip: "Persistent Queue",
             type: "custom",
@@ -1630,6 +1629,7 @@
         };
 
         const init = () => {
+            UI.ensureAssets();
             if (registerSidebar()) return;
             UI.mountFallback();
             finalize(state.container);
