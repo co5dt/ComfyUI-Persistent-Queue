@@ -385,13 +385,6 @@
                     caption: "Calculated from history",
                     variant: "neutral",
                 }),
-                UI.metricTile({
-                    icon: "ti ti-chart-bar",
-                    label: "Backlog delta",
-                    value: m.backlogDelta > 0 ? `+${m.backlogDelta}` : String(m.backlogDelta),
-                    caption: m.lastFailure ? `Last failure ${Format.relative(m.lastFailure)}` : "",
-                    variant: m.backlogDelta > 0 ? "warning" : "success",
-                }),
             ];
             const wrap = UI.el("div", { class: "pqueue-metrics" }, tiles);
             state.dom.metrics = wrap;
@@ -468,30 +461,19 @@
             state.dom.pendingCount = footerCount;
             state.dom.pendingUpdated = footerUpdated;
 
-            const bulkPriority = UI.button({
-                id: "pqueue-bulk-priority",
-                text: "Set priority",
-                icon: "ti ti-arrow-autofit-up",
-                variant: "secondary",
-                subtle: true,
-                disabled: state.selectedPending.size === 0,
-                badge: state.selectedPending.size || null,
-            });
             const deleteSelected = UI.button({
                 id: "pqueue-delete-selected",
-                text: "Delete selected",
                 icon: "ti ti-trash",
                 variant: "danger",
                 subtle: true,
                 disabled: state.selectedPending.size === 0,
                 badge: state.selectedPending.size || null,
             });
-            state.dom.bulkPriorityBtn = bulkPriority;
             state.dom.deleteSelectedBtn = deleteSelected;
 
             const footer = UI.el("div", { class: "pqueue-table__footer" }, [
                 UI.el("div", { class: "pqueue-table__footer-left" }, [footerCount, footerUpdated]),
-                UI.el("div", { class: "pqueue-table__footer-right" }, [bulkPriority, deleteSelected]),
+                UI.el("div", { class: "pqueue-table__footer-right" }, [deleteSelected]),
             ]);
 
             return UI.card("Queue", {
@@ -1040,7 +1022,6 @@
             document.getElementById("pqueue-clear")?.addEventListener("click", Events.clearPending);
             document.getElementById("pqueue-refresh")?.addEventListener("click", Events.manualRefresh);
             state.dom.filterInput?.addEventListener("input", Events.handleFilter);
-            state.dom.bulkPriorityBtn?.addEventListener("click", Events.bulkPriority);
             state.dom.deleteSelectedBtn?.addEventListener("click", Events.deleteSelected);
             state.dom.pendingTable?.querySelector(".pqueue-select-all")?.addEventListener("change", Events.toggleSelectAll);
 
@@ -1125,22 +1106,12 @@
             if (!btn) return;
             const action = btn.dataset.action;
             const id = btn.dataset.id;
-            if (action === "save-priority") Events.savePriority(btn.closest(".pqueue-row"));
-            else if (action === "delete") Events.deleteSingle(id);
-            else if (action === "view") Events.viewWorkflow(id);
+            if (action === "delete") Events.deleteSingle(id);
+            else if (action === "move-top") Events.moveSingle(id, "top");
+            else if (action === "move-bottom") Events.moveSingle(id, "bottom");
         },
 
-        handleTableKey(event) {
-            if (!event.target.classList.contains("pqueue-priority")) return;
-            if (event.key === "Enter") {
-                event.preventDefault();
-                Events.savePriority(event.target.closest(".pqueue-row"));
-            } else if (event.key === "Escape") {
-                event.preventDefault();
-                event.target.value = String(state.dbIndex.get(event.target.dataset.id)?.priority ?? 0);
-                event.target.blur();
-            }
-        },
+        handleTableKey() {},
 
         handleDragStart(event) {
             const row = event.target.closest(".pqueue-row[data-id]");
@@ -1202,26 +1173,7 @@
             }
         },
 
-        async savePriority(row) {
-            if (!row) return;
-            const id = row.dataset.id;
-            const input = row.querySelector(".pqueue-priority");
-            if (!input) return;
-            const value = parseInt(input.value || "0", 10);
-            if (Number.isNaN(value)) {
-                setStatusMessage("Priority must be a number", 3000);
-                return;
-            }
-            try {
-                await API.setPriority(id, value);
-                setStatusMessage("Priority updated");
-                await refresh({ skipIfBusy: true });
-            } catch (err) {
-                console.error("pqueue: set priority failed", err);
-                state.error = err?.message || "Failed to set priority";
-                UI.updateToolbarStatus();
-            }
-        },
+        async savePriority() {},
 
         async deleteSingle(id) {
             if (!id) return;
