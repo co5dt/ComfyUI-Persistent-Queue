@@ -52,7 +52,6 @@
             successRate: null,
             avgDuration: null,
             failureCount: 0,
-            backlogDelta: 0,
             lastFailure: null,
         },
         isRefreshing: false,
@@ -1306,7 +1305,6 @@
             successRate: null,
             avgDuration: null,
             failureCount: 0,
-            backlogDelta: state.queue_pending.length - state.queue_running.length,
             lastFailure: null,
         };
 
