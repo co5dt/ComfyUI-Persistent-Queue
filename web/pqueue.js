@@ -228,41 +228,88 @@
             UI.updateProgressBarsFromState();
         },
 
+		getThumbPlaceholderMeta(row) {
+			const status = String(row?.status ?? '').toLowerCase();
+			if (['interrupted', 'cancelled', 'canceled', 'stopped'].includes(status)) {
+				return { text: 'Interrupted', iconClass: 'pi-stop-circle', variant: 'interrupted' };
+			}
+			if (['error', 'failed', 'failure'].includes(status)) {
+				return { text: 'Failed', iconClass: 'pi-times-circle', variant: 'failed' };
+			}
+			return { text: 'Preview unavailable', iconClass: 'pi-image-off', variant: 'empty' };
+		},
+
+		createThumbPlaceholder(options = {}) {
+			const { text, iconClass, variant } = options ?? {};
+			const classes = ['pqueue-thumb-placeholder'];
+			if (variant) classes.push(`pqueue-thumb-placeholder--${variant}`);
+			const placeholder = UI.el('div', { class: classes.join(' ') });
+			const icon = UI.el('i', { class: `pi ${iconClass || 'pi-image-off'}` });
+			const label = UI.el('span', { class: 'pqueue-thumb-placeholder-text', text: text || 'Preview unavailable' });
+			placeholder.appendChild(icon);
+			placeholder.appendChild(label);
+			return placeholder;
+		},
+
 		buildResultThumbs(row) {
             try {
 				const container = UI.el('div', { class: 'flex gap-1 flex-wrap' });
+				const placeholderMeta = UI.getThumbPlaceholderMeta(row);
+				const ensurePlaceholder = () => {
+					const wrapClasses = ['pqueue-thumb-wrap', 'pqueue-thumb-wrap-placeholder'];
+					if (placeholderMeta?.variant) wrapClasses.push(`pqueue-thumb-wrap-placeholder--${placeholderMeta.variant}`);
+					const wrap = UI.el('div', { class: wrapClasses.join(' ') });
+					wrap.appendChild(UI.createThumbPlaceholder(placeholderMeta));
+					container.appendChild(wrap);
+				};
+				const attachFallbackHandler = (thumbWrap, img, images = []) => {
+					img.addEventListener('error', () => {
+						thumbWrap.classList.add('pqueue-thumb-wrap-placeholder');
+						if (placeholderMeta?.variant) thumbWrap.classList.add(`pqueue-thumb-wrap-placeholder--${placeholderMeta.variant}`);
+						thumbWrap.replaceChildren(UI.createThumbPlaceholder(placeholderMeta));
+						if (!images.length) thumbWrap.onclick = null;
+					}, { once: true });
+				};
 				// Prefer stored DB thumbnail if available; bust cache with timestamp to avoid race
 				if (row.id) {
+					const galleryImages = UI.extractImages(row);
 					const url = new URL(`/api/pqueue/history/thumb/${row.id}`, window.location.origin);
 					url.searchParams.set('_', String(Date.now()));
 					const thumbWrap = UI.el('div', { class: 'pqueue-thumb-wrap' });
 					const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: `history-${row.id}` });
+					attachFallbackHandler(thumbWrap, img, galleryImages);
 					thumbWrap.appendChild(img);
-					if (UI.countImages(row) > 1) {
-						const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${UI.countImages(row)}` });
+					const imgCount = UI.countImages(row);
+					if (imgCount > 1) {
+						const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${imgCount}` });
 						thumbWrap.appendChild(badge);
 					}
-					thumbWrap.onclick = () => {
-						const images = UI.extractImages(row);
-						if (images.length) UI.openGallery(images, 0, row.prompt_id);
-					};
+					if (galleryImages.length) {
+						thumbWrap.onclick = () => UI.openGallery(galleryImages, 0, row.prompt_id);
+					} else {
+						thumbWrap.onclick = null;
+					}
 					container.appendChild(thumbWrap);
-					return container;
 				}
 				// Fallback to live preview route if DB thumb missing
-				const images = UI.extractImages(row);
-				if (!images.length) return container;
-				const first = images[0];
-				const url = UI.buildPreviewUrl(first, row.prompt_id);
-				const thumbWrap = UI.el('div', { class: 'pqueue-thumb-wrap' });
-				const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: first.filename });
-				thumbWrap.appendChild(img);
-				if (images.length > 1) {
-					const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${images.length}` });
-					thumbWrap.appendChild(badge);
+				if (!container.children.length) {
+					const images = UI.extractImages(row);
+					if (images.length) {
+						const first = images[0];
+						const url = UI.buildPreviewUrl(first, row.prompt_id);
+						const thumbWrap = UI.el('div', { class: 'pqueue-thumb-wrap' });
+						const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: first.filename });
+						attachFallbackHandler(thumbWrap, img, images);
+						thumbWrap.appendChild(img);
+						if (images.length > 1) {
+							const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${images.length}` });
+							thumbWrap.appendChild(badge);
+						}
+						thumbWrap.onclick = () => UI.openGallery(images, 0, row.prompt_id);
+						container.appendChild(thumbWrap);
+					}
 				}
-				thumbWrap.onclick = () => UI.openGallery(images, 0, row.prompt_id);
-				container.appendChild(thumbWrap);
+				if (!container.children.length) ensurePlaceholder();
 				return container;
             } catch(e) { return UI.el('span', {}); }
         },
