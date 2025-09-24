@@ -97,27 +97,21 @@
             }
         },
 
-        renderToolbar() {
-            const pauseBtn = UI.createButton({
-                id: 'pqueue-toggle',
-                text: state.paused ? 'Resume' : 'Pause',
-                icon: state.paused ? 'pi-play' : 'pi-pause',
-                classes: state.paused ? 'p-button-success' : 'p-button-warning',
-            });
-            const refreshBtn = UI.createButton({
-                id: 'pqueue-refresh',
-                text: 'Refresh',
-                icon: 'pi-refresh',
-                classes: 'p-button-text',
-            });
-            const clearBtn = UI.createButton({
+			renderToolbar() {
+				const pauseBtn = UI.createButton({
+					id: 'pqueue-toggle',
+					text: state.paused ? 'Resume' : 'Pause',
+					icon: state.paused ? 'pi-play' : 'pi-pause',
+					classes: state.paused ? 'p-button-success' : 'p-button-warning',
+				});
+				const clearBtn = UI.createButton({
                 id: 'pqueue-clear',
                 text: 'Clear Pending',
                 icon: 'pi-stop',
                 classes: 'p-button-text p-button-danger',
             });
 
-            return UI.el('div', { class: 'pqueue-toolbar' }, [pauseBtn, refreshBtn, clearBtn]);
+				return UI.el('div', { class: 'pqueue-toolbar' }, [pauseBtn, clearBtn]);
         },
 
         renderRunningSection() {
@@ -467,7 +461,6 @@
 
         init() {
             document.getElementById('pqueue-toggle').onclick = Events.onPauseClick;
-            document.getElementById('pqueue-refresh').onclick = refresh;
             const clearBtn = document.getElementById('pqueue-clear');
             if (clearBtn) {
                 clearBtn.onclick = Events.onClearClick;
@@ -540,17 +533,22 @@
                 } catch (e) { /* ignore */ }
             };
 
+            // Use immediate refresh on lifecycle events; progress updates are handled separately
             const onQueueOrExecChange = () => refresh();
+            const onExecDone = () => refresh();
 
             api.addEventListener('progress_state', onProgressState);
             api.addEventListener('status', onQueueOrExecChange);
-            api.addEventListener('executing', onQueueOrExecChange);
-            api.addEventListener('executed', onQueueOrExecChange);
+            // 'executing' fires often per-node; do not refresh on every tick
+            api.addEventListener('executing', onProgressState);
+            api.addEventListener('executed', onExecDone);
             api.addEventListener('execution_start', onQueueOrExecChange);
-            api.addEventListener('execution_success', onQueueOrExecChange);
-            api.addEventListener('execution_error', onQueueOrExecChange);
-            api.addEventListener('execution_interrupted', onQueueOrExecChange);
+            api.addEventListener('execution_success', onExecDone);
+            api.addEventListener('execution_error', onExecDone);
+            api.addEventListener('execution_interrupted', onExecDone);
 
+            // If we reach here, socket listeners are active. Ensure fallback polling is disabled.
+            stopFallbackPolling();
             return true;
         } catch (e) {
             console.error('pqueue: Error setting up WebSocket listeners.', e);
@@ -570,7 +568,16 @@
             UI.render();
             if (!setupSocketListeners()) {
                 setupFallbackPolling();
+                // Retry establishing WebSocket listeners in the background
+                let retries = 50;
+                const retryId = setInterval(() => {
+                    if (setupSocketListeners() || --retries <= 0) {
+                        clearInterval(retryId);
+                    }
+                }, 200);
             }
+            // Initial fetch to populate queue + history on first load
+            refresh();
         };
 
         const sidebarTabDefinition = {
