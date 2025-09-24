@@ -458,53 +458,29 @@
             api.addEventListener('execution_success', onQueueOrExecChange);
             api.addEventListener('execution_error', onQueueOrExecChange);
             api.addEventListener('execution_interrupted', onQueueOrExecChange);
+
             return true;
-        } catch(e) { return false; }
+        } catch (e) {
+            console.error('pqueue: Error setting up WebSocket listeners.', e);
+            return false;
+        }
     }
 
-    // Initialize extension
-    function init() {
-        try {
-            const tryRegisterSidebar = () => {
-                if (window.app && window.app.extensionManager && typeof window.app.extensionManager.registerSidebarTab === 'function') {
-                    window.app.extensionManager.registerSidebarTab({
-                        id: 'persistent_queue',
-                        icon: 'pi pi-history',
-                        title: 'Persistent Queue',
-                        tooltip: 'Persistent Queue',
-                        type: 'custom',
-                        render: (el) => {
-                            state.container = el;
-                            render();
-                            setupSocketRefresh();
-                        }
-                    });
-                    // Remove floating fallback if present
-                    const fab = document.getElementById('pqueue-fab');
-                    if (fab && fab.parentElement) fab.parentElement.removeChild(fab);
-                    const panel = document.getElementById('pqueue-panel');
-                    if (panel && panel.parentElement) panel.parentElement.removeChild(panel);
-                    return true;
-                }
-                return false;
-            };
+    function setupFallbackPolling() {
+        window.addEventListener('focus', refresh);
+        setInterval(refresh, 3000);
+    }
 
-            if (!tryRegisterSidebar()) {
-                // Retry registration for a short window while the frontend boots
-                let retries = 50;
-                const iv = setInterval(() => {
-                    if (tryRegisterSidebar() || --retries <= 0) clearInterval(iv);
-                }, 200);
-                // Fallback: floating panel immediately
-                mount();
-                setupSocketRefresh();
+    function initialize() {
+        const renderAndSetup = (el) => {
+            state.container = el;
+            UI.render();
+            if (!setupSocketListeners()) {
+                setupFallbackPolling();
             }
-        } catch(e) { console.warn('pqueue init failed', e); }
-    }
+        };
 
-    // Prefer native extension lifecycle if available
-    if (window.app && typeof window.app.registerExtension === 'function') {
-        window.app.registerExtension({
+        const extension = {
             name: 'ComfyUI-PersistentQueue',
             sidebarTabs: [
                 {
@@ -513,24 +489,46 @@
                     title: 'Persistent Queue',
                     tooltip: 'Persistent Queue',
                     type: 'custom',
-                    render: (el) => {
-                        state.container = el;
-                        render();
-                        setupSocketRefresh();
-                    }
+                    render: renderAndSetup
                 }
             ],
             async setup(app) {
-                // If for some reason sidebarTabs is not recognized by this frontend build,
-                // fall back to runtime registration or floating panel.
-                init();
+                // Fallback for older versions that don't recognize sidebarTabs
+                if (!state.container) {
+                    console.warn('pqueue: sidebarTabs not recognized, falling back to manual registration.');
+                    if (app?.extensionManager?.registerSidebarTab) {
+                        app.extensionManager.registerSidebarTab(this.sidebarTabs[0]);
+                    } else {
+                        console.warn('pqueue: No sidebar registration method found, falling back to floating panel.');
+                        UI.mount();
+                        renderAndSetup(state.container);
+                    }
+                }
             }
-        });
-    } else if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
+        };
+
+        if (window.app?.registerExtension) {
+            window.app.registerExtension(extension);
+        } else {
+            // Fallback for very old versions or standalone execution
+            const onReady = () => {
+                if (window.app?.extensionManager?.registerSidebarTab) {
+                    window.app.extensionManager.registerSidebarTab(extension.sidebarTabs[0]);
+                } else {
+                    UI.mount();
+                    renderAndSetup(state.container);
+                }
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', onReady);
+            } else {
+                onReady();
+            }
+        }
     }
+
+    initialize();
 })();
 
 
