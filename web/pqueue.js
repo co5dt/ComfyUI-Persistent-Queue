@@ -994,7 +994,7 @@
                 UI.button({ text: "Clear", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("clear") }),
             ]);
 
-            const header = UI.el('div', { class: 'pqueue-popover__header' }, [
+            const header = UI.el('div', { class: 'pqueue-popover__header pqueue-card__header' }, [
                 UI.el('div', { class: 'pqueue-popover__title', text: 'History filters' }),
                 UI.el('div', { class: 'pqueue-popover__hint', text: 'Local timezone applied' }),
                 UI.button({ icon: 'ti ti-x', variant: 'ghost', subtle: true, title: 'Close', onClick: () => { pop?.remove(); state.dom.filtersPopover = null; } })
@@ -1008,13 +1008,17 @@
                 ])
             ]);
 
-            const pop = UI.el('div', { class: 'pqueue-popover', role: 'dialog', 'aria-label': 'History filters' }, [
-                UI.el('div', { class: 'pqueue-popover__arrow' }),
-                header,
+            const content = UI.el('div', { class: 'pqueue-card__body pqueue-popover__content' }, [
                 UI.el('div', { class: 'pqueue-popover__section' }, [UI.el('strong', { text: 'Date range' })]),
                 dates,
                 UI.el('div', { class: 'pqueue-popover__section' }, [UI.el('strong', { text: 'Presets' })]),
-                presets,
+                presets
+            ]);
+
+            const pop = UI.el('div', { class: ['pqueue-popover', 'pqueue-card'], role: 'dialog', 'aria-label': 'History filters' }, [
+                UI.el('div', { class: 'pqueue-popover__arrow' }),
+                header,
+                content,
                 footer
             ]);
 
