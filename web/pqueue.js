@@ -776,13 +776,6 @@
                 e.stopPropagation();
                 Events.toggleFiltersPopover(e.currentTarget);
             });
-            document.addEventListener('click', (ev) => {
-                const pop = state.dom.filtersPopover;
-                if (pop && !pop.contains(ev.target) && ev.target !== filtersBtn) {
-                    pop.remove();
-                    state.dom.filtersPopover = null;
-                }
-            }, { once: true });
 
             return [filtersBtn, sortToggle, UI.clearFiltersIcon()];
         },
