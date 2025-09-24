@@ -429,26 +429,16 @@
 
         renderPending() {
             const wrapper = UI.el("div", { class: "pqueue-table-wrapper" });
-            const table = UI.el("div", { class: "pqueue-table", id: "pqueue-pending" });
-            state.dom.pendingTable = table;
+            const list = UI.el("div", { class: "pqueue-list", id: "pqueue-pending" });
+            state.dom.pendingTable = list;
 
-            const header = UI.el("div", { class: "pqueue-table__header" }, [
-                UI.el("div", { class: "pqueue-col pqueue-col--prompt pqueue-col--sticky" }, [
-                    UI.el("div", { class: "pqueue-table__prompt" }, [
-                        UI.icon("ti ti-drag-drop", { size: "sm" }),
-                        UI.el("input", {
-                            type: "checkbox",
-                            class: "pqueue-checkbox pqueue-select-all",
-                            title: "Select all visible",
-                        }),
-                        UI.el("span", { class: "pqueue-table__heading", text: "Workflow" }),
-                    ]),
-                ]),
-                UI.el("div", { class: "pqueue-col pqueue-col--submitted" }, [UI.el("span", { class: "pqueue-table__heading", text: "Submitted" })]),
-                UI.el("div", { class: "pqueue-col pqueue-col--estimate" }, [UI.el("span", { class: "pqueue-table__heading", text: "Estimate" })]),
-                UI.el("div", { class: "pqueue-col pqueue-col--actions" }, [UI.el("span", { class: "pqueue-table__heading", text: "Actions" })]),
+            const listHeader = UI.el("div", { class: "pqueue-list__header" }, [
+                UI.el("label", { class: "pqueue-list__selectall" }, [
+                    UI.el("input", { type: "checkbox", class: "pqueue-checkbox pqueue-select-all", title: "Select all visible" }),
+                    UI.el("span", { class: "pqueue-table__heading", text: "Select all" })
+                ])
             ]);
-            table.appendChild(header);
+            list.appendChild(listHeader);
 
             const rows = state.queue_pending.map(UI.pendingRow).filter(Boolean);
             if (!rows.length) {
@@ -458,8 +448,8 @@
                     description: "Enqueue prompts in ComfyUI to populate the persistent queue.",
                 }));
             }
-            rows.forEach((row) => table.appendChild(row));
-            wrapper.appendChild(table);
+            rows.forEach((row) => list.appendChild(row));
+            wrapper.appendChild(list);
 
             const footerCount = UI.el("span", { class: "pqueue-muted" });
             const footerUpdated = UI.el("span", { class: "pqueue-muted" });
@@ -494,23 +484,22 @@
             const db = state.dbIndex.get(pid) || {};
             const selected = state.selectedPending.has(pid);
 
-            const row = UI.el("div", { class: ["pqueue-row", selected ? "is-selected" : null], "data-id": pid, draggable: "true" });
+            const row = UI.el("article", { class: ["pqueue-row", selected ? "is-selected" : null], "data-id": pid, draggable: "true" });
 
             const checkbox = UI.el("input", { type: "checkbox", class: "pqueue-checkbox pqueue-select" });
             checkbox.checked = selected;
 
             const status = UI.statusBadge(db.status || "pending", { subtle: true });
             const primaryLabel = UI.buildWorkflowLabel(pid, item, db);
-            const primary = UI.el("div", { class: "pqueue-row__primary" }, [UI.icon("ti ti-drag-drop", { size: "sm" }), checkbox, primaryLabel, status]);
-            if (db.error) {
-                const err = UI.icon("ti ti-alert-triangle", { size: "sm" });
-                err.classList.add("pqueue-row__error");
-                err.title = db.error;
-                primary.appendChild(err);
-            }
+            const line1 = UI.el("div", { class: "pqueue-pcard__line1" }, [
+                UI.el("div", { class: "pqueue-pcard__l1-left" }, [checkbox, primaryLabel]),
+                UI.el("div", { class: "pqueue-pcard__l1-right" }, [UI.el("span", { class: "pqueue-muted", text: db.created_at ? Format.relative(db.created_at) : "—" })])
+            ]);
 
-            const submitted = db.created_at ? Format.relative(db.created_at) : "—";
-            const submittedMeta = db.created_at ? Format.datetime(db.created_at) : "";
+            const estimateSeconds = UI.estimateDuration(pid, item[2]);
+            const estimateLabel = estimateSeconds ? `Est. ${Format.duration(estimateSeconds)}` : "";
+            const dateLabel = db.created_at ? new Date(db.created_at).toLocaleDateString() : "";
+            const timeLabel = db.created_at ? new Date(db.created_at).toLocaleTimeString() : "";
 
             const deleteBtn = UI.button({ icon: "ti ti-trash", variant: "danger", subtle: true, title: "Delete" });
             deleteBtn.dataset.action = "delete";
@@ -524,26 +513,26 @@
             moveBottomBtn.dataset.action = "move-bottom";
             moveBottomBtn.dataset.id = pid;
 
-            const estimateSeconds = UI.estimateDuration(pid, item[2]);
-            const estimateLabel = estimateSeconds ? Format.duration(estimateSeconds) : "—";
-            const estimateMeta = estimateSeconds ? "Typical runtime" : "";
+            const actionsWrap = UI.el("div", { class: "pqueue-actions-group" }, [deleteBtn, moveTopBtn, moveBottomBtn, UI.icon("ti ti-drag-drop", { size: "sm" })]);
 
-            const colPrompt = UI.el("div", { class: "pqueue-col pqueue-col--prompt pqueue-col--sticky" }, [primary]);
-            const colSubmitted = UI.el("div", { class: "pqueue-col pqueue-col--submitted" }, [
-                UI.el("span", { class: "pqueue-cell__primary", text: submitted }),
-                UI.el("span", { class: "pqueue-cell__secondary", text: submittedMeta })
+            const line2 = UI.el("div", { class: "pqueue-pcard__line2" }, [
+                UI.el("span", { class: "pqueue-muted", text: estimateLabel }),
+                UI.el("span", { class: "pqueue-muted", text: dateLabel }),
+                UI.el("span", { class: "pqueue-muted", text: timeLabel }),
+                actionsWrap,
             ]);
-            const colEstimate = UI.el("div", { class: "pqueue-col pqueue-col--estimate" }, [
-                UI.el("span", { class: "pqueue-cell__primary", text: estimateLabel }),
-                UI.el("span", { class: "pqueue-cell__secondary", text: estimateMeta })
-            ]);
-            const actionsWrap = UI.el("div", { class: "pqueue-actions-group" }, [deleteBtn, moveTopBtn, moveBottomBtn]);
-            const colActions = UI.el("div", { class: "pqueue-col pqueue-col--actions" }, [actionsWrap]);
 
-            row.appendChild(colPrompt);
-            row.appendChild(colSubmitted);
-            row.appendChild(colEstimate);
-            row.appendChild(colActions);
+            const statusLine = UI.el("div", { class: "pqueue-pcard__status" }, [status]);
+            if (db.error) {
+                const err = UI.icon("ti ti-alert-triangle", { size: "sm" });
+                err.classList.add("pqueue-row__error");
+                err.title = db.error;
+                statusLine.appendChild(err);
+            }
+
+            row.appendChild(line1);
+            row.appendChild(line2);
+            row.appendChild(statusLine);
 
             row.dataset.search = [state.workflowNameCache.get(pid) || "", db.status, db.error, db.created_at].filter(Boolean).join(" ").toLowerCase();
             return row;
