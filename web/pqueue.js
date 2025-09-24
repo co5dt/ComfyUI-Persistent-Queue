@@ -20,8 +20,27 @@
         history: [],
         running_progress: {},
         container: null,
-        listPending: null,
         selectedPending: new Set(),
+        isRefreshing: false,
+        lastUpdated: null,
+        error: null,
+        filters: {
+            pending: '',
+        },
+        metrics: {
+            runningCount: 0,
+            queueCount: 0,
+            persistedCount: 0,
+            historyCount: 0,
+            successRate: null,
+            avgDuration: null,
+            failureCount: 0,
+            backlogDelta: 0,
+            lastFailure: null,
+        },
+        workflowCache: new Map(),
+        durationByWorkflow: new Map(),
+        bulkPriorityValue: '',
     };
 
     // Polling control (fallback only)
