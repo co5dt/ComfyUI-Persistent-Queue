@@ -15,6 +15,7 @@ from io import BytesIO
 import os
 import hashlib
 import folder_paths
+import json
 
 class PersistentQueueManager:
     def __init__(self):
@@ -76,16 +77,25 @@ class PersistentQueueManager:
                         status_str = status.status_str if status is not None else 'success'
                         completed = (status.completed if status is not None else True)
                         new_state = 'completed' if completed else 'failed'
+                        # Persist history and thumbnails BEFORE notifying original logic, to avoid UI race
                         self.db.update_job_status(prompt_id, new_state, error=None if completed else status_str)
-                        self.db.add_history(
+                        history_id = self.db.add_history(
                             prompt_id=prompt_id,
                             workflow=prompt,
                             outputs=history_result.get('outputs', {}),
                             status=status_str,
                             duration_seconds=None,
                         )
+                        try:
+                            thumbs = self._generate_thumbnails_from_outputs(history_result.get('outputs', {}))
+                            if thumbs:
+                                self.db.save_history_thumbnails(history_id, thumbs)
+                        except Exception as te:
+                            logging.debug(f"PersistentQueue: failed to save thumbnails: {te}")
                 except Exception as e:
                     logging.debug(f"PersistentQueue task_done wrapper persist failed: {e}")
+                # Call original last so websocket updates happen after persistence
+                self._original_task_done(q_self, item_id, history_result, status)
 
             execution.PromptQueue.task_done = task_done_wrapper
 
@@ -194,6 +204,68 @@ class PersistentQueueManager:
     async def _api_get_history(self, request: web.Request) -> web.Response:
         limit = int(request.rel_url.query.get("limit", "50"))
         return web.json_response({"history": self.db.list_history(limit=limit)})
+
+    def _generate_thumbnails_from_outputs(self, outputs: Optional[dict]) -> List[Dict[str, Any]]:
+        if not outputs:
+            return []
+        images = []
+        try:
+            for v in (outputs or {}).values():
+                if isinstance(v, dict):
+                    imgs = v.get('images') or (v.get('ui') or {}).get('images') or []
+                    if isinstance(imgs, list):
+                        for i in imgs:
+                            if isinstance(i, dict) and (i.get('filename') or i.get('name')):
+                                images.append(i)
+                elif isinstance(v, list):
+                    for i in v:
+                        if isinstance(i, dict) and (i.get('filename') or i.get('name')):
+                            images.append(i)
+        except Exception:
+            images = []
+
+        thumbs: List[Dict[str, Any]] = []
+        max_thumbs = 4
+        for idx, i in enumerate(images[:max_thumbs]):
+            filename = i.get('filename') or i.get('name')
+            ftype = i.get('type') or 'output'
+            subfolder = i.get('subfolder') or ''
+            base_dir = folder_paths.get_directory_by_type(ftype)
+            if base_dir is None:
+                continue
+            img_dir = base_dir
+            if subfolder:
+                full_output_dir = os.path.join(base_dir, subfolder)
+                if os.path.commonpath((os.path.abspath(full_output_dir), base_dir)) != base_dir:
+                    continue
+                img_dir = full_output_dir
+            file_path = os.path.join(img_dir, os.path.basename(filename))
+            if not os.path.isfile(file_path):
+                continue
+            try:
+                with Image.open(file_path) as img:
+                    # Contain to 128x128 and encode WEBP with quality 60
+                    if hasattr(Image, 'Resampling'):
+                        resampling = Image.Resampling.LANCZOS
+                    else:
+                        resampling = Image.LANCZOS
+                    w, h = img.size
+                    scale = min(128 / max(1, w), 128 / max(1, h), 1.0)
+                    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                    thumb_img = img.convert('RGB').resize(new_size, resampling)
+                    buf = BytesIO()
+                    thumb_img.save(buf, format='WEBP', quality=60)
+                    data = buf.getvalue()
+                    thumbs.append({
+                        'idx': idx,
+                        'mime': 'image/webp',
+                        'width': new_size[0],
+                        'height': new_size[1],
+                        'data': data,
+                    })
+            except Exception:
+                continue
+        return thumbs
 
     async def _api_pause(self, request: web.Request) -> web.Response:
         self.pause_queue()
