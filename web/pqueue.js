@@ -231,6 +231,25 @@
 		buildResultThumbs(row) {
             try {
 				const container = UI.el('div', { class: 'flex gap-1 flex-wrap' });
+				// Prefer stored DB thumbnail if available; bust cache with timestamp to avoid race
+				if (row.id) {
+					const url = new URL(`/api/pqueue/history/thumb/${row.id}`, window.location.origin);
+					url.searchParams.set('_', String(Date.now()));
+					const thumbWrap = UI.el('div', { class: 'pqueue-thumb-wrap' });
+					const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: `history-${row.id}` });
+					thumbWrap.appendChild(img);
+					if (UI.countImages(row) > 1) {
+						const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${UI.countImages(row)}` });
+						thumbWrap.appendChild(badge);
+					}
+					thumbWrap.onclick = () => {
+						const images = UI.extractImages(row);
+						if (images.length) UI.openGallery(images, 0, row.prompt_id);
+					};
+					container.appendChild(thumbWrap);
+					return container;
+				}
+				// Fallback to live preview route if DB thumb missing
 				const images = UI.extractImages(row);
 				if (!images.length) return container;
 				const first = images[0];
@@ -247,6 +266,12 @@
 				return container;
             } catch(e) { return UI.el('span', {}); }
         },
+
+		countImages(row) {
+			try {
+				return UI.extractImages(row).length;
+			} catch(e) { return 0; }
+		},
 
 		buildPreviewUrl(imgDesc, pid) {
 			const url = new URL('/api/pqueue/preview', window.location.origin);
