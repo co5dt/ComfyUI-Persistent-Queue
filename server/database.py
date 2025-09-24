@@ -15,6 +15,7 @@ class QueueDatabase:
             db_path = os.path.join(user_dir, "persistent_queue.sqlite3")
         self.db_path = db_path
         self._init_database()
+        self._backfilled_once = False
     
     def _get_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -53,6 +54,7 @@ class QueueDatabase:
                     status TEXT
                 )
             ''')
+            # No schema migrations for now; keep it simple
     
     def add_job(self, prompt_id: str, workflow: dict, priority: int = 0) -> None:
         """Add a job to the persistent queue"""
@@ -122,9 +124,48 @@ class QueueDatabase:
         duration_seconds: Optional[float] = None,
     ) -> None:
         with self._get_conn() as conn:
-            now = datetime.now()
-            created_at = now
-            completed_at = now
+            # Prefer accurate timestamps from queue_items when available
+            def _parse_dt(val: Any) -> Optional[datetime]:
+                if val is None:
+                    return None
+                if isinstance(val, datetime):
+                    return val
+                if isinstance(val, str):
+                    try:
+                        # sqlite will store Python datetimes as strings like 'YYYY-MM-DD HH:MM:SS[.ffffff]'
+                        return datetime.fromisoformat(val)
+                    except Exception:
+                        return None
+                return None
+
+            created_at = None
+            completed_at = None
+            try:
+                cur = conn.execute(
+                    'SELECT created_at, started_at, completed_at FROM queue_items WHERE prompt_id = ?',
+                    (prompt_id,),
+                )
+                row = cur.fetchone()
+                if row:
+                    started = _parse_dt(row['started_at'])
+                    created = _parse_dt(row['created_at'])
+                    completed = _parse_dt(row['completed_at'])
+                    created_at = started or created or datetime.now()
+                    completed_at = completed or datetime.now()
+                    if duration_seconds is None and created_at and completed_at:
+                        try:
+                            duration_seconds = max(0.0, (completed_at - created_at).total_seconds())
+                        except Exception:
+                            duration_seconds = None
+            except Exception:
+                # Fallback to now if any error occurs
+                pass
+
+            if created_at is None:
+                created_at = datetime.now()
+            if completed_at is None:
+                completed_at = created_at
+
             conn.execute(
                 '''
                 INSERT INTO job_history (prompt_id, workflow, outputs, duration_seconds, created_at, completed_at, status)
@@ -143,7 +184,97 @@ class QueueDatabase:
 
     def list_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
+            # On-the-fly lightweight backfill for rows missing duration or with identical timestamps
+            try:
+                if not self._backfilled_once:
+                    self._backfill_history_rows(conn)
+                    self._backfilled_once = True
+            except Exception:
+                # Non-fatal if backfill fails
+                pass
+
             cur = conn.execute(
                 'SELECT * FROM job_history ORDER BY id DESC LIMIT ?', (limit,)
             )
             return [dict(row) for row in cur.fetchall()]
+
+    def get_job_timestamps_and_workflow(self, prompt_id: str) -> Optional[Dict[str, Any]]:
+        """Return created_at/started_at/completed_at and workflow JSON (text) for a given prompt_id."""
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                'SELECT created_at, started_at, completed_at, workflow FROM queue_items WHERE prompt_id = ?',
+                (prompt_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_average_duration_for_workflow(self, workflow_text: Optional[str], min_samples: int = 2) -> Optional[float]:
+        """Compute an average historical duration for a given workflow text. Returns None if not enough data."""
+        if not workflow_text:
+            return None
+        with self._get_conn() as conn:
+            try:
+                cur = conn.execute(
+                    '''
+                    SELECT duration_seconds FROM job_history 
+                    WHERE workflow = ? AND duration_seconds IS NOT NULL AND duration_seconds > 0
+                    ORDER BY id DESC LIMIT 20
+                    ''',
+                    (workflow_text,),
+                )
+                vals = [float(r['duration_seconds']) for r in cur.fetchall()]
+                if len(vals) < min_samples:
+                    return None
+                # Use median for robustness
+                vals.sort()
+                n = len(vals)
+                if n % 2 == 1:
+                    return vals[n // 2]
+                else:
+                    return (vals[n // 2 - 1] + vals[n // 2]) / 2.0
+            except Exception:
+                return None
+
+    def _backfill_history_rows(self, conn: sqlite3.Connection) -> None:
+        """Compute and set duration_seconds/accurate timestamps for existing history rows when possible."""
+        try:
+            cur = conn.execute(
+                '''
+                SELECT j.id as jid, j.created_at as j_created, j.completed_at as j_completed, j.duration_seconds as j_dur,
+                       j.prompt_id as pid, qi.created_at as qi_created, qi.started_at as qi_started, qi.completed_at as qi_completed
+                FROM job_history j
+                LEFT JOIN queue_items qi ON qi.prompt_id = j.prompt_id
+                WHERE (j.duration_seconds IS NULL OR j.duration_seconds <= 0 OR j.created_at = j.completed_at)
+                      AND qi.completed_at IS NOT NULL
+                '''
+            )
+            rows = cur.fetchall()
+            if not rows:
+                return
+
+            def _parse_dt(val: Any) -> Optional[datetime]:
+                if val is None:
+                    return None
+                if isinstance(val, datetime):
+                    return val
+                if isinstance(val, str):
+                    try:
+                        return datetime.fromisoformat(val)
+                    except Exception:
+                        return None
+                return None
+
+            for r in rows:
+                started = _parse_dt(r['qi_started']) or _parse_dt(r['qi_created']) or _parse_dt(r['j_created']) or datetime.now()
+                completed = _parse_dt(r['qi_completed']) or _parse_dt(r['j_completed']) or started
+                try:
+                    dur = max(0.0, (completed - started).total_seconds())
+                except Exception:
+                    dur = None
+                conn.execute(
+                    'UPDATE job_history SET duration_seconds = ?, created_at = ?, completed_at = ? WHERE id = ?',
+                    (dur, started, completed, r['jid'])
+                )
+        except Exception:
+            # Ignore errors; not critical
+            return

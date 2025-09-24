@@ -251,6 +251,10 @@
 
     function buildDuration(row) {
         try {
+            const dur = Number(row.duration_seconds);
+            if (!Number.isNaN(dur) && dur > 0) {
+                return `${dur.toFixed(2)}s`;
+            }
             const started = row.created_at || row.started_at;
             const completed = row.completed_at;
             if (!started || !completed) return '';
