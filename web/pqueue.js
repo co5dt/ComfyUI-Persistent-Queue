@@ -147,6 +147,7 @@
             historySinceTime: "",
             historyUntilTime: "",
         },
+        historyTotal: null,
         historyIds: new Set(),
         historyPaging: {
             isLoading: false,
@@ -545,6 +546,17 @@
             const list = UI.el("div", { class: "pqueue-list", id: "pqueue-pending" });
             state.dom.pendingTable = list;
 
+            // Search input moved to Queue card header actions
+            const filter = UI.el("input", {
+                id: "pqueue-filter",
+                class: "pqueue-input",
+                type: "search",
+                placeholder: "Filter pending by prompt, status, error…",
+                value: state.filters.pending,
+                spellcheck: "false",
+            });
+            state.dom.filterInput = filter;
+
             const listHeader = UI.el("div", { class: "pqueue-list__header" }, [
                 UI.el("label", { class: "pqueue-list__selectall" }, [
                     UI.el("input", { type: "checkbox", class: "pqueue-checkbox pqueue-select-all", title: "Select all visible" }),
@@ -587,6 +599,7 @@
             return UI.card("Queue", {
                 icon: "ti ti-stack-front",
                 subtitle: state.metrics.queueCount ? `${state.metrics.queueCount} pending` : null,
+                actions: [filter],
                 content: [wrapper, footer],
             });
         },
@@ -709,10 +722,11 @@
             const sentinel = UI.historySentinel();
             state.dom.historySentinel = sentinel;
             grid.appendChild(sentinel);
-            const base = state.metrics.historyCount ? `${state.metrics.historyCount} entries` : null;
+            const count = (state.historyTotal != null) ? state.historyTotal : state.metrics.historyCount;
+            const base = (count != null) ? `${count} entries` : null;
             const range = UI.currentHistoryRangeLabel();
             const subtitle = [base, range].filter(Boolean).join(' • ');
-            const card = UI.card("Recent history", {
+            const card = UI.card("History", {
                 icon: "ti ti-clock-bolt",
                 subtitle,
                 actions: UI.historyFilters(),
@@ -759,7 +773,8 @@
             try {
                 const el = state.dom.historySubtitle;
                 if (!el) return;
-                const base = state.metrics?.historyCount ? `${state.metrics.historyCount} entries` : null;
+                const count = (state.historyTotal != null) ? state.historyTotal : state.metrics?.historyCount;
+                const base = (count != null) ? `${count} entries` : null;
                 const range = UI.currentHistoryRangeLabel();
                 const text = [base, range].filter(Boolean).join(' • ');
                 el.textContent = text;
@@ -1649,6 +1664,7 @@
                     grid.insertBefore(frag, sentinel);
                 }
                 if (list.length) state.history.push(...list);
+                if (typeof result?.total === 'number') state.historyTotal = result.total;
                 paging.nextCursor = result?.next_cursor || null;
                 paging.hasMore = !!result?.has_more;
 
@@ -1796,6 +1812,7 @@
                 if (grid) Array.from(grid.querySelectorAll('.pqueue-history-card')).forEach((n) => n.remove());
                 state.history = [];
                 state.historyIds = new Set();
+                state.historyTotal = null;
                 state.historyPaging.nextCursor = null;
                 state.historyPaging.hasMore = true;
                 if (sentinel) sentinel.style.display = '';
@@ -1852,6 +1869,7 @@
             }
             state.history = [];
             state.historyIds = new Set();
+            state.historyTotal = null;
             state.historyPaging.nextCursor = null;
             state.historyPaging.hasMore = true;
             if (sentinel) sentinel.style.display = "";
@@ -1956,6 +1974,7 @@
             state.db_pending = queue.db_pending || [];
             state.running_progress = queue.running_progress || {};
             state.history = (paged && Array.isArray(paged.history)) ? paged.history : [];
+            state.historyTotal = (paged && typeof paged.total === 'number') ? paged.total : null;
             state.error = null;
 
             const index = new Map();
