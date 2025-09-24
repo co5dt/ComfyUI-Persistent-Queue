@@ -165,7 +165,6 @@ class QueueHookManager:
             self._original_task_done = None
         self._installed = False
 
-
 class RoutesHelper:
     """Registers HTTP routes for the persistent queue API."""
 
@@ -185,7 +184,6 @@ class RoutesHelper:
             web.post('/api/pqueue/delete', manager._api_delete),
         ]
         self.app.add_routes(routes)
-
 
 class PersistentQueueManager:
     """Coordinator for persistent queue persistence, API handlers, and hooks."""
