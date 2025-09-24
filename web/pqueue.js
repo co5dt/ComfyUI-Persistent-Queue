@@ -55,14 +55,10 @@
         pauseBtn.innerHTML = `<span class="p-button-icon pi ${state.paused ? 'pi-play' : 'pi-pause'}"></span><span class="p-button-label">${state.paused ? 'Resume' : 'Pause'}</span>`;
         const refreshBtn = el('button', { id: 'pqueue-refresh', class: 'p-button p-component p-button-text' });
         refreshBtn.innerHTML = `<span class="p-button-icon pi pi-refresh"></span><span class="p-button-label">Refresh</span>`;
-        const runningCount = el('span', { class: 'p-tag p-tag-rounded p-tag-info', text: `Running ${state.queue_running.length}` });
-        const pendingCount = el('span', { class: 'p-tag p-tag-rounded p-tag-secondary', text: `Pending ${state.queue_pending.length}` });
         const clearBtn = el('button', { id: 'pqueue-clear', class: 'p-button p-component p-button-text p-button-danger' });
         clearBtn.innerHTML = `<span class="p-button-icon pi pi-stop"></span><span class="p-button-label">Clear Pending</span>`;
         toolbar.appendChild(pauseBtn);
         toolbar.appendChild(refreshBtn);
-        toolbar.appendChild(runningCount);
-        toolbar.appendChild(pendingCount);
         toolbar.appendChild(clearBtn);
 
         const sections = el('div', { class: 'pqueue-sections' });
@@ -89,7 +85,7 @@
         // Pending
         const pendingCard = el('div', { class: 'p-card pqueue-card' });
         const pendingBody = el('div', { class: 'p-card-body' });
-        pendingBody.appendChild(el('div', { class: 'p-card-title', text: 'Pending' }));
+        pendingBody.appendChild(el('div', { class: 'p-card-title', text: `Pending (${state.queue_pending.length})` }));
         const pendingList = el('ul', { id: 'pqueue-pending', class: 'pqueue-list' });
         if (!state.queue_pending.length) pendingList.appendChild(el('li', { class: 'pqueue-empty', text: 'No pending items' }));
         state.queue_pending.forEach(item => {
