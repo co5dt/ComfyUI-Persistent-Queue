@@ -1014,13 +1014,13 @@
                 content,
                 footer
             ]);
+            pop.setAttribute('data-open', 'false');
 
             // keyboard handling: Esc closes; Tab traps within
             const keyHandler = (e) => {
                 if (e.key === 'Escape') {
                     e.preventDefault();
-                    pop.remove();
-                    state.dom.filtersPopover = null;
+                    try { pop.dispatchEvent(new CustomEvent('pqueue-close', { bubbles: true })); } catch (err) {}
                 } else if (e.key === 'Tab') {
                     const focusables = pop.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
                     const list = Array.from(focusables).filter((n) => !n.hasAttribute('disabled'));
@@ -1665,16 +1665,19 @@
             try {
                 // If open, close and cleanup listeners
                 if (state.dom.filtersPopover) {
-                    const pop = state.dom.filtersPopover;
-                    if (state.dom.filtersPopoverListeners) {
-                        const { onDocPointer, onResize, onScroll } = state.dom.filtersPopoverListeners;
-                        if (onDocPointer) document.removeEventListener('pointerdown', onDocPointer, true);
-                        if (onResize) window.removeEventListener('resize', onResize);
-                        if (onScroll) window.removeEventListener('scroll', onScroll, true);
-                        state.dom.filtersPopoverListeners = null;
+                    const existing = state.dom.filtersPopover;
+                    if (typeof existing._closeAnimated === 'function') existing._closeAnimated();
+                    else {
+                        if (state.dom.filtersPopoverListeners) {
+                            const { onDocPointer, onResize, onScroll } = state.dom.filtersPopoverListeners;
+                            if (onDocPointer) document.removeEventListener('pointerdown', onDocPointer, true);
+                            if (onResize) window.removeEventListener('resize', onResize);
+                            if (onScroll) window.removeEventListener('scroll', onScroll, true);
+                            state.dom.filtersPopoverListeners = null;
+                        }
+                        existing.remove();
+                        state.dom.filtersPopover = null;
                     }
-                    pop.remove();
-                    state.dom.filtersPopover = null;
                     return;
                 }
 
@@ -1731,19 +1734,35 @@
                 };
 
                 // Outside click/tap closes popover
+                const closeAnimated = () => {
+                    try {
+                        if (!state.dom.filtersPopover) return;
+                        const node = state.dom.filtersPopover;
+                        // remove global listeners immediately
+                        document.removeEventListener('pointerdown', onDocPointer, true);
+                        window.removeEventListener('resize', onResize);
+                        window.removeEventListener('scroll', onScroll, true);
+                        state.dom.filtersPopoverListeners = null;
+                        let removed = false;
+                        const cleanup = () => {
+                            if (removed) return;
+                            removed = true;
+                            try { node.remove(); } catch (err) {}
+                            if (state.dom.filtersPopover === node) state.dom.filtersPopover = null;
+                        };
+                        node.setAttribute('data-open', 'false');
+                        const timeoutId = window.setTimeout(cleanup, 180);
+                        node.addEventListener('transitionend', () => { window.clearTimeout(timeoutId); cleanup(); }, { once: true });
+                    } catch (err) { /* noop */ }
+                };
+
                 const onDocPointer = (ev) => {
                     try {
                         if (!state.dom.filtersPopover) return;
                         const target = ev.target;
                         if (state.dom.filtersPopover.contains(target)) return;
                         if (anchor && (target === anchor || (anchor.contains && anchor.contains(target)))) return;
-                        // Close
-                        document.removeEventListener('pointerdown', onDocPointer, true);
-                        window.removeEventListener('resize', onResize);
-                        window.removeEventListener('scroll', onScroll, true);
-                        state.dom.filtersPopoverListeners = null;
-                        state.dom.filtersPopover.remove();
-                        state.dom.filtersPopover = null;
+                        closeAnimated();
                     } catch (err) { /* noop */ }
                 };
                 const onResize = () => position();
@@ -1752,9 +1771,13 @@
                 window.addEventListener('resize', onResize);
                 window.addEventListener('scroll', onScroll, true);
                 state.dom.filtersPopoverListeners = { onDocPointer, onResize, onScroll };
+                pop.addEventListener('pqueue-close', closeAnimated);
+                pop._closeAnimated = closeAnimated;
 
                 // Initial position
                 position();
+                // Animate open
+                requestAnimationFrame(() => { try { pop.setAttribute('data-open', 'true'); } catch (err) {} });
             } catch (err) {
                 /* noop */
             }
