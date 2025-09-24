@@ -24,6 +24,10 @@
         selectedPending: new Set(),
     };
 
+    // Polling control (fallback only)
+    let _pqueuePollIntervalId = null;
+    let _pqueueFocusListener = null;
+
     const Progress = {
         computeAggregateProgress(nodes) {
             let totalMax = 0;
@@ -556,9 +560,25 @@
         }
     }
 
+    function stopFallbackPolling() {
+        try {
+            if (_pqueuePollIntervalId) {
+                clearInterval(_pqueuePollIntervalId);
+                _pqueuePollIntervalId = null;
+            }
+            if (_pqueueFocusListener) {
+                window.removeEventListener('focus', _pqueueFocusListener);
+                _pqueueFocusListener = null;
+            }
+        } catch (e) { /* noop */ }
+    }
+
     function setupFallbackPolling() {
-        window.addEventListener('focus', refresh);
-        setInterval(refresh, 3000);
+        // Only used when WebSocket API is unavailable
+        stopFallbackPolling();
+        _pqueueFocusListener = () => refresh();
+        window.addEventListener('focus', _pqueueFocusListener);
+        _pqueuePollIntervalId = setInterval(refresh, 3000);
     }
 
     function initialize() {
