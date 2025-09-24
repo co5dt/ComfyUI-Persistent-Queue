@@ -363,6 +363,7 @@ class PersistentQueueManager:
             app.add_routes([
                 web.get('/api/pqueue', self._api_get_pqueue),
                 web.get('/api/pqueue/history', self._api_get_history),
+                web.get('/api/pqueue/history/thumb/{history_id:\\d+}', self._api_get_history_thumb),
                 web.get('/api/pqueue/preview', self._api_preview_image),
                 web.post('/api/pqueue/pause', self._api_pause),
                 web.post('/api/pqueue/resume', self._api_resume),
@@ -372,6 +373,17 @@ class PersistentQueueManager:
             ])
         except Exception as e:
             logging.debug(f"PersistentQueue add routes failed: {e}")
+
+    async def _api_get_history_thumb(self, request: web.Request) -> web.Response:
+        try:
+            history_id = int(request.match_info.get('history_id', '0'))
+            idx = int(request.rel_url.query.get('idx', '0'))
+            row = self.db.get_history_thumbnail(history_id, idx)
+            if not row:
+                return web.Response(status=404)
+            return web.Response(body=row['data'], content_type=row.get('mime') or 'image/webp')
+        except Exception:
+            return web.Response(status=500)
 
     async def _api_preview_image(self, request: web.Request) -> web.Response:
         try:
