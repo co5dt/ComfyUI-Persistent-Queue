@@ -342,7 +342,7 @@
         // The frontend sends events to the page via a global event dispatch. As a minimal approach, poll occasionally
         // and also refresh when the page receives focus.
         window.addEventListener('focus', () => refresh());
-        setInterval(() => { refresh(); }, 3000);
+        setInterval(() => { refresh(); }, 1000);
     }
 
     // Initialize extension
