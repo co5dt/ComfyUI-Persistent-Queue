@@ -502,10 +502,11 @@
                 state.queue_running.forEach((item, index) => {
                     const pid = item[1];
                     const fraction = Math.max(0, Math.min(1, Number(state.running_progress?.[pid]) || 0));
+                    const workflowName = state.workflowNameCache.get(pid) || pid;
                     const meta = UI.el("div", { class: "pqueue-item__meta" }, [
                         UI.icon("ti ti-loader-2", { spin: true }),
                         UI.el("span", { class: "pqueue-chip pqueue-chip--primary", text: `#${index + 1}` }),
-                        UI.el("span", { class: "pqueue-code", text: pid }),
+                        UI.el("span", { class: "pqueue-row__label", text: workflowName }),
                         UI.el("span", { class: "pqueue-progress__label", text: Format.percent(fraction) }),
                     ]);
                     const bar = UI.el("div", { class: "pqueue-progress-bar" });
@@ -1390,7 +1391,7 @@
 
             state.workflowCache = new Map();
             state.workflowNameCache = new Map();
-            state.queue_pending.forEach((item) => {
+            [...state.queue_pending, ...state.queue_running].forEach((item) => {
                 const pid = String(item[1] ?? "");
                 try {
                     const wf = item[2];
