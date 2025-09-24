@@ -6,6 +6,7 @@
 .pqueue-card>.p-card-body{padding:.25rem .5rem}
 .pqueue-list{list-style:none;margin:0;padding:0}
 .pqueue-item{display:flex;align-items:center;justify-content:space-between;border-bottom:1px dashed var(--border-color);padding:.35rem .25rem;border-radius:4px}
+.pqueue-left{display:flex;flex-direction:column;gap:.25rem;flex:1}
 .pqueue-item:hover{background:rgba(0,0,0,0.04)}
 .dark-theme .pqueue-item:hover{background:rgba(255,255,255,0.06)}
 .pqueue-item:last-child{border-bottom:none}
@@ -16,3 +17,5 @@
 .pqueue-empty{opacity:.7;font-size:.9rem;padding:.25rem 0}
 .pqueue-thumbs-grid{display:grid;grid-template-columns:repeat(2, 96px);gap:6px}
 .pqueue-thumb{width:96px;height:96px;object-fit:cover;border-radius:4px;cursor:pointer}
+.pqueue-progress-wrap{width:100%;height:8px;background:#1f2a1f;border-radius:4px;overflow:hidden;margin-top:6px}
+.pqueue-progress-bar{height:100%;width:0;background:#22c55e;transition:width .3s ease}

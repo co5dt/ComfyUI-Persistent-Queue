@@ -153,11 +153,36 @@ class PersistentQueueManager:
     async def _api_get_pqueue(self, request: web.Request) -> web.Response:
         from server import PromptServer
         running, queued = PromptServer.instance.prompt_queue.get_current_queue_volatile()
+        # Compute per-prompt progress (0..1) using global progress registry when available
+        progress_map = {}
+        try:
+            from comfy_execution.progress import get_progress_state
+            reg = get_progress_state()
+            if reg is not None and getattr(reg, 'nodes', None) and reg.prompt_id:
+                total_max = 0.0
+                total_val = 0.0
+                for st in reg.nodes.values():
+                    try:
+                        mv = float(st.get('max', 1.0) or 1.0)
+                        vv = float(st.get('value', 0.0) or 0.0)
+                    except Exception:
+                        mv = 1.0
+                        vv = 0.0
+                    if mv <= 0:
+                        mv = 1.0
+                    total_max += mv
+                    total_val += max(0.0, min(vv, mv))
+                frac = (total_val / total_max) if total_max > 0 else 0.0
+                progress_map[reg.prompt_id] = max(0.0, min(1.0, frac))
+        except Exception:
+            pass
+
         return web.json_response({
             "paused": self.paused,
             "db_pending": self.db.get_pending_jobs(),
             "queue_running": running,
             "queue_pending": queued,
+            "running_progress": progress_map,
         })
 
     async def _api_get_history(self, request: web.Request) -> web.Response:

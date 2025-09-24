@@ -18,6 +18,7 @@
         queue_pending: [],
         db_pending: [],
         history: [],
+        running_progress: {},
         container: null,
         listPending: null,
         selectedPending: new Set(),
@@ -70,11 +71,23 @@
         const runningList = el('ul', { class: 'pqueue-list' });
         if (!state.queue_running.length) runningList.appendChild(el('li', { class: 'pqueue-empty', text: 'No running job' }));
         state.queue_running.forEach(item => {
-            const li = el('li', { class: 'pqueue-item' }, [
+            const pid = item[1];
+            const leftCol = el('div', { class: 'pqueue-left' }, [
                 el('div', { class: 'pqueue-meta' }, [
                     el('i', { class: 'pi pi-spin pi-spinner' }),
-                    el('span', { text: item[1] })
+                    el('span', { text: pid })
                 ]),
+                (() => {
+                    const wrap = el('div', { class: 'pqueue-progress-wrap' });
+                    const bar = el('div', { class: 'pqueue-progress-bar' });
+                    const frac = Math.max(0, Math.min(1, Number(state.running_progress && state.running_progress[pid]) || 0));
+                    bar.style.width = `${(frac * 100).toFixed(2)}%`;
+                    wrap.appendChild(bar);
+                    return wrap;
+                })()
+            ]);
+            const li = el('li', { class: 'pqueue-item' }, [
+                leftCol,
                 el('div', { class: 'pqueue-actions' }, [])
             ]);
             runningList.appendChild(li);
@@ -268,6 +281,7 @@
         state.queue_running = q.queue_running || [];
         state.queue_pending = q.queue_pending || [];
         state.db_pending = q.db_pending || [];
+        state.running_progress = q.running_progress || {};
         const h = await API.getHistory(50);
         state.history = h.history || [];
         render();
