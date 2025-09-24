@@ -230,17 +230,13 @@
             UI.updateProgressBarsFromState();
         },
 
-        buildResultThumbs(row) {
+		buildResultThumbs(row) {
             try {
 				const container = UI.el('div', { class: 'flex gap-1 flex-wrap' });
 				const images = UI.extractImages(row);
 				if (!images.length) return container;
 				const first = images[0];
-				const url = new URL('/view', window.location.origin);
-				url.searchParams.set('filename', first.filename);
-				url.searchParams.set('type', first.type);
-				if (first.subfolder) url.searchParams.set('subfolder', first.subfolder);
-				url.searchParams.set('preview', 'webp;50');
+				const url = UI.buildPreviewUrl(first, row.prompt_id);
 				const thumbWrap = UI.el('div', { class: 'pqueue-thumb-wrap' });
 				const img = UI.el('img', { src: url.href, class: 'pqueue-thumb', title: first.filename });
 				thumbWrap.appendChild(img);
@@ -248,11 +244,21 @@
 					const badge = UI.el('div', { class: 'pqueue-batch-badge', text: `${images.length}` });
 					thumbWrap.appendChild(badge);
 				}
-				thumbWrap.onclick = () => UI.openGallery(images, 0);
+				thumbWrap.onclick = () => UI.openGallery(images, 0, row.prompt_id);
 				container.appendChild(thumbWrap);
 				return container;
             } catch(e) { return UI.el('span', {}); }
         },
+
+		buildPreviewUrl(imgDesc, pid) {
+			const url = new URL('/api/pqueue/preview', window.location.origin);
+			url.searchParams.set('filename', imgDesc.filename);
+			url.searchParams.set('type', imgDesc.type);
+			if (imgDesc.subfolder) url.searchParams.set('subfolder', imgDesc.subfolder);
+			url.searchParams.set('preview', 'webp;50');
+			if (pid) url.searchParams.set('pid', pid);
+			return url;
+		},
 
 		// Collect normalized image descriptors for a row
 		extractImages(row) {
@@ -298,10 +304,11 @@
         },
 
 		// Lightbox-style gallery for image batches
-		openGallery(images, startIndex = 0) {
+		openGallery(images, startIndex = 0, pid = null) {
 			try {
 				UI.ensureGalleryElements();
 				UI._galleryState.images = images || [];
+				UI._galleryState.pid = pid;
 				UI._galleryState.index = Math.max(0, Math.min(startIndex, UI._galleryState.images.length - 1));
 				UI._galleryOverlay.style.display = 'flex';
 				UI.showGalleryImage(UI._galleryState.index);
@@ -319,10 +326,7 @@
 			if (!imgs.length) return;
 			UI._galleryState.index = (index + imgs.length) % imgs.length;
 			const imgDesc = imgs[UI._galleryState.index];
-			const url = new URL('/view', window.location.origin);
-			url.searchParams.set('filename', imgDesc.filename);
-			url.searchParams.set('type', imgDesc.type);
-			if (imgDesc.subfolder) url.searchParams.set('subfolder', imgDesc.subfolder);
+			const url = UI.buildPreviewUrl(imgDesc, UI._galleryState.pid);
 			UI._galleryImg.src = url.href;
 			UI._galleryCounter.textContent = `${UI._galleryState.index + 1} / ${imgs.length}`;
 		},
