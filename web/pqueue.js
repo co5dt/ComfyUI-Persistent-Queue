@@ -212,12 +212,16 @@
             return UI.el("span", { class: classes });
         },
 
-        button({ id, text, icon, variant, subtle, size, badge, title, disabled, onClick }) {
+        button({ id, text, icon, variant, subtle, size, badge, title, disabled, onClick, ariaLabel }) {
             const classes = ["pqueue-button"];
             if (variant) classes.push(`pqueue-button--${variant}`);
             if (subtle) classes.push("pqueue-button--subtle");
             if (size) classes.push(`pqueue-button--${size}`);
-            const btn = UI.el("button", { id, class: classes, type: "button", title: title || "" });
+            const attrs = { class: classes, type: "button" };
+            if (id) attrs.id = id;
+            if (title) attrs.title = title;
+            if (ariaLabel) attrs["aria-label"] = ariaLabel;
+            const btn = UI.el("button", attrs);
             if (disabled) btn.disabled = true;
             if (icon) btn.appendChild(UI.icon(icon));
             if (text) btn.appendChild(UI.el("span", { class: "pqueue-button__label", text }));
@@ -317,19 +321,21 @@
 			renderToolbar() {
             const pauseBtn = UI.button({
                 id: "pqueue-toggle",
-                text: state.paused ? "Resume queue" : "Pause queue",
                 icon: state.paused ? "ti ti-player-play-filled" : "ti ti-player-pause-filled",
+                ariaLabel: state.paused ? "Resume queue" : "Pause queue",
+                title: state.paused ? "Resume queue" : "Pause queue",
                 variant: state.paused ? "success" : "warning",
+                subtle: true,
             });
             const clearBtn = UI.button({
                 id: "pqueue-clear",
-                text: "Clear pending",
-                icon: "ti ti-trash-x",
+                icon: "ti ti-player-stop",
+                ariaLabel: "Clear pending",
+                title: "Clear pending jobs",
                 variant: "danger",
                 subtle: true,
-                title: "Remove every pending prompt",
             });
-            const refreshBtn = UI.button({ id: "pqueue-refresh", icon: "ti ti-refresh", variant: "ghost", subtle: true, title: "Refresh" });
+            const refreshBtn = UI.button({ id: "pqueue-refresh", icon: "ti ti-refresh", ariaLabel: "Refresh", title: "Refresh", variant: "ghost", subtle: true });
 
             const filter = UI.el("input", {
                 id: "pqueue-filter",
