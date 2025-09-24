@@ -1408,8 +1408,28 @@
             // Reset history paging on manual refresh
             state.history = [];
             state.historyIds = new Set();
-            state.historyPaging = { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: "id", sort_dir: "desc", limit: 60 } };
+            // Preserve current date filters when resetting paging
+            const pad = (n) => String(n).padStart(2, '0');
+            const fmt = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+            const buildParams = () => {
+                const params = { sort_by: "id", sort_dir: "desc", limit: 60 };
+                const s = state.filters?.historySince;
+                const u = state.filters?.historyUntil;
+                if (s) {
+                    const [y, m, d] = s.split('-').map((x) => parseInt(x, 10));
+                    const start = new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
+                    params.since = fmt(start);
+                }
+                if (u) {
+                    const [y, m, d] = u.split('-').map((x) => parseInt(x, 10));
+                    const end = new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999);
+                    params.until = fmt(end);
+                }
+                return params;
+            };
+            state.historyPaging = { isLoading: false, hasMore: true, nextCursor: null, params: buildParams() };
             refresh();
+            UI.updateHistorySubtitle();
         },
 
         handleFilter(event) {
@@ -1583,6 +1603,152 @@
                 /* ignore load errors to avoid UI jank */
             } finally {
                 if (state.historyPaging) state.historyPaging.isLoading = false;
+            }
+        },
+
+        toggleFiltersPopover(anchor) {
+            try {
+                if (state.dom.filtersPopover) {
+                    state.dom.filtersPopover.remove();
+                    state.dom.filtersPopover = null;
+                    return;
+                }
+                const pop = UI.buildFiltersPopover(anchor);
+                document.body.appendChild(pop);
+                state.dom.filtersPopover = pop;
+            } catch (err) {
+                /* noop */
+            }
+        },
+
+        setHistorySort(dir) {
+            try {
+                if (!state.historyPaging) state.historyPaging = { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: 'id', sort_dir: 'desc', limit: 60 } };
+                const params = state.historyPaging.params || {};
+                params.sort_dir = (dir === 'asc') ? 'asc' : 'desc';
+                state.historyPaging.params = params;
+
+                // Reset and reload
+                const grid = state.dom.historyGrid;
+                const sentinel = state.dom.historySentinel;
+                if (grid) Array.from(grid.querySelectorAll('.pqueue-history-card')).forEach((n) => n.remove());
+                state.history = [];
+                state.historyIds = new Set();
+                state.historyPaging.nextCursor = null;
+                state.historyPaging.hasMore = true;
+                if (sentinel) sentinel.style.display = '';
+                Events.loadMoreHistory();
+                UI.updateSortToggle();
+            } catch (err) {
+                /* noop */
+            }
+        },
+
+        updateHistoryDateFilters(sinceVal, untilVal, sinceTimeVal = "", untilTimeVal = "") {
+            // Use LOCAL day bounds and format as 'YYYY-MM-DD HH:MM:SS' to match DB format
+            const pad = (n) => String(n).padStart(2, '0');
+            const fmt = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+            const toLocalStart = (d, t) => {
+                if (!d) return "";
+                const parts = d.split('-').map((x) => parseInt(x, 10));
+                let hh = 0, mm = 0, ss = 0;
+                if (t && /^\d{2}:\d{2}(:\d{2})?$/.test(t)) {
+                    const tt = t.split(':').map((x) => parseInt(x, 10));
+                    hh = tt[0] ?? 0; mm = tt[1] ?? 0; ss = tt[2] ?? 0;
+                }
+                const dt = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1, hh, mm, ss, 0);
+                return fmt(dt);
+            };
+            const toLocalEnd = (d, t) => {
+                if (!d) return "";
+                const parts = d.split('-').map((x) => parseInt(x, 10));
+                let hh = 23, mm = 59, ss = 59;
+                if (t && /^\d{2}:\d{2}(:\d{2})?$/.test(t)) {
+                    const tt = t.split(':').map((x) => parseInt(x, 10));
+                    hh = tt[0] ?? 23; mm = tt[1] ?? 59; ss = tt[2] ?? 59;
+                }
+                const dt = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1, hh, mm, ss, 999);
+                return fmt(dt);
+            };
+
+            state.filters.historySince = sinceVal || "";
+            state.filters.historyUntil = untilVal || "";
+            state.filters.historySinceTime = sinceTimeVal || "";
+            state.filters.historyUntilTime = untilTimeVal || "";
+            if (!state.historyPaging) state.historyPaging = { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: "id", sort_dir: "desc", limit: 60 } };
+            const params = state.historyPaging.params || {};
+            params.since = toLocalStart(state.filters.historySince, state.filters.historySinceTime) || undefined;
+            params.until = toLocalEnd(state.filters.historyUntil, state.filters.historyUntilTime) || undefined;
+            state.historyPaging.params = params;
+
+            // Reset list and load first page with filters
+            const grid = state.dom.historyGrid;
+            const sentinel = state.dom.historySentinel;
+            if (grid) {
+                // Remove all history cards except sentinel
+                Array.from(grid.querySelectorAll('.pqueue-history-card')).forEach((n) => n.remove());
+            }
+            state.history = [];
+            state.historyIds = new Set();
+            state.historyPaging.nextCursor = null;
+            state.historyPaging.hasMore = true;
+            if (sentinel) sentinel.style.display = "";
+            // Prime by fetching one page now
+            Events.loadMoreHistory();
+            UI.updateHistorySubtitle();
+        },
+
+        applyHistoryPreset(kind) {
+            try {
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const toDateStr = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+                const toTimeStr = (dt) => `${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+
+                if (kind === 'clear') {
+                    state.historyPreset = undefined;
+                    state.filters.historySince = "";
+                    state.filters.historySinceTime = "";
+                    state.filters.historyUntil = "";
+                    state.filters.historyUntilTime = "";
+                } else if (kind === 'today') {
+                    state.historyPreset = 'today';
+                    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+                    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+                    state.filters.historySince = toDateStr(start);
+                    state.filters.historySinceTime = '00:00:00';
+                    state.filters.historyUntil = toDateStr(end);
+                    state.filters.historyUntilTime = '23:59:59';
+                } else if (kind === '24h') {
+                    state.historyPreset = '24h';
+                    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    state.filters.historySince = toDateStr(start);
+                    state.filters.historySinceTime = toTimeStr(start);
+                    state.filters.historyUntil = toDateStr(now);
+                    state.filters.historyUntilTime = toTimeStr(now);
+                } else if (kind === '7d') {
+                    state.historyPreset = '7d';
+                    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    state.filters.historySince = toDateStr(start);
+                    state.filters.historySinceTime = toTimeStr(start);
+                    state.filters.historyUntil = toDateStr(now);
+                    state.filters.historyUntilTime = toTimeStr(now);
+                }
+
+                if (state.dom.historySince) state.dom.historySince.value = state.filters.historySince;
+                if (state.dom.historySinceTime) state.dom.historySinceTime.value = state.filters.historySinceTime;
+                if (state.dom.historyUntil) state.dom.historyUntil.value = state.filters.historyUntil;
+                if (state.dom.historyUntilTime) state.dom.historyUntilTime.value = state.filters.historyUntilTime;
+
+                Events.updateHistoryDateFilters(
+                    state.filters.historySince,
+                    state.filters.historyUntil,
+                    state.filters.historySinceTime,
+                    state.filters.historyUntilTime
+                );
+                UI.updateHistorySubtitle();
+            } catch (err) {
+                /* noop */
             }
         },
 
