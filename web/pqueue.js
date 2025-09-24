@@ -423,7 +423,6 @@
             state.container = UI.el('div', { class: 'pqueue-content' });
             panel.appendChild(state.container);
             document.body.appendChild(panel);
-            refresh();
         }
     };
 
@@ -561,7 +560,8 @@
     }
 
     function initialize() {
-        const renderAndSetup = (el) => {
+        
+        const finalSetup = (el) => {
             state.container = el;
             UI.render();
             if (!setupSocketListeners()) {
@@ -569,50 +569,66 @@
             }
         };
 
+        const sidebarTabDefinition = {
+            id: 'persistent_queue',
+            icon: 'pi pi-history',
+            title: 'Persistent Queue',
+            tooltip: 'Persistent Queue',
+            type: 'custom',
+            render: (el) => {
+                document.getElementById('pqueue-fab')?.remove();
+                document.getElementById('pqueue-panel')?.remove();
+                finalSetup(el);
+            },
+        };
+
+        const tryRegisterSidebar = () => {
+            try {
+                if (window.app?.extensionManager?.registerSidebarTab) {
+                    window.app.extensionManager.registerSidebarTab(sidebarTabDefinition);
+                    return true;
+                }
+            } catch (error) {
+                console.error("pqueue: Error registering sidebar tab.", error);
+            }
+            return false;
+        };
+
+        const initLogic = () => {
+           
+            if (tryRegisterSidebar()) {
+                return;
+            }
+            
+            if (!document.getElementById('pqueue-panel')) {
+                UI.mount();
+                finalSetup(state.container);
+            }
+
+            let retries = 50; // Try for 10 seconds
+            const intervalId = setInterval(() => {
+                if (tryRegisterSidebar() || --retries <= 0) {
+                    clearInterval(intervalId);
+                }
+            }, 200);
+        };
+
         const extension = {
             name: 'ComfyUI-PersistentQueue',
-            sidebarTabs: [
-                {
-                    id: 'persistent_queue',
-                    icon: 'pi pi-history',
-                    title: 'Persistent Queue',
-                    tooltip: 'Persistent Queue',
-                    type: 'custom',
-                    render: renderAndSetup
-                }
-            ],
             async setup(app) {
-                // Fallback for older versions that don't recognize sidebarTabs
-                if (!state.container) {
-                    console.warn('pqueue: sidebarTabs not recognized, falling back to manual registration.');
-                    if (app?.extensionManager?.registerSidebarTab) {
-                        app.extensionManager.registerSidebarTab(this.sidebarTabs[0]);
-                    } else {
-                        console.warn('pqueue: No sidebar registration method found, falling back to floating panel.');
-                        UI.mount();
-                        renderAndSetup(state.container);
-                    }
-                }
+                initLogic();
             }
         };
 
+        // Use the modern extension system if available.
         if (window.app?.registerExtension) {
             window.app.registerExtension(extension);
         } else {
-            // Fallback for very old versions or standalone execution
-            const onReady = () => {
-                if (window.app?.extensionManager?.registerSidebarTab) {
-                    window.app.extensionManager.registerSidebarTab(extension.sidebarTabs[0]);
-                } else {
-                    UI.mount();
-                    renderAndSetup(state.container);
-                }
-            };
-
+            // Fallback for very old versions.
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', onReady);
+                document.addEventListener('DOMContentLoaded', initLogic);
             } else {
-                onReady();
+                initLogic();
             }
         }
     }
