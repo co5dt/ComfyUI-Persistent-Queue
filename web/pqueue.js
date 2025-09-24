@@ -990,14 +990,14 @@
             const header = UI.el('div', { class: 'pqueue-popover__header pqueue-card__header' }, [
                 UI.el('div', { class: 'pqueue-popover__title', text: 'History filters' }),
                 UI.el('div', { class: 'pqueue-popover__hint', text: 'Local timezone applied' }),
-                UI.button({ icon: 'ti ti-x', variant: 'ghost', subtle: true, title: 'Close', onClick: () => { pop?.remove(); state.dom.filtersPopover = null; } })
+                UI.button({ icon: 'ti ti-x', variant: 'ghost', subtle: true, title: 'Close', onClick: () => { try { pop?.dispatchEvent(new CustomEvent('pqueue-close', { bubbles: true })); } catch (err) {} } })
             ]);
 
             const footer = UI.el('div', { class: 'pqueue-popover__footer' }, [
                 UI.el('div', { class: 'pqueue-popover__footer-left' }, [UI.el('span', { class: 'pqueue-muted', text: UI.currentHistoryRangeLabel() })]),
                 UI.el('div', { class: 'pqueue-popover__footer-right' }, [
                     UI.button({ text: 'Clear', variant: 'ghost', subtle: true, size: 'sm', onClick: () => Events.applyHistoryPreset('clear') }),
-                    UI.button({ text: 'Done', variant: 'secondary', size: 'sm', onClick: () => { pop?.remove(); state.dom.filtersPopover = null; } })
+                    UI.button({ text: 'Done', variant: 'secondary', size: 'sm', onClick: () => { try { pop?.dispatchEvent(new CustomEvent('pqueue-close', { bubbles: true })); } catch (err) {} } })
                 ])
             ]);
 
