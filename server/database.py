@@ -308,7 +308,12 @@ class QueueDatabase:
     ) -> Dict[str, Any]:
         """Keyset paginated history listing supporting basic filtering and sorting.
 
-        Returns a dict: { 'history': [...], 'next_cursor': { 'id': int, 'value': any }|None, 'has_more': bool }
+        Returns a dict: {
+            'history': [...],
+            'next_cursor': { 'id': int, 'value': any }|None,
+            'has_more': bool,
+            'total': int  # total rows matching filters (ignores cursor and limit)
+        }
         """
         # Normalize and validate inputs
         sort_by = (sort_by or "id").lower()
@@ -360,6 +365,10 @@ class QueueDatabase:
                 keyset_clause = f"(({sort_by} {cmp} ?) OR ({sort_by} = ? AND id {cmp} ?))"
                 params.extend([cursor_value, cursor_value, int(cursor_id)])
 
+        # Preserve filter-only clauses/params for total count
+        filter_only_clauses = list(where_clauses)
+        filter_only_params = list(params)
+
         if keyset_clause:
             where_clauses.append(keyset_clause)
 
@@ -395,7 +404,20 @@ class QueueDatabase:
                 val = last.get(sort_by)
                 next_cursor = {"id": last.get("id"), "value": val}
 
-        return {"history": rows, "next_cursor": next_cursor, "has_more": has_more}
+            # Compute total count for filters (without keyset and limit)
+            total = 0
+            try:
+                where_only_sql = (" WHERE " + " AND ".join(filter_only_clauses)) if filter_only_clauses else ""
+                count_sql = f"SELECT COUNT(*) AS c FROM job_history{where_only_sql}"
+                cur = conn.execute(count_sql, (*filter_only_params,))
+                row = cur.fetchone()
+                if row is not None:
+                    # sqlite3.Row supports index and key access
+                    total = int(row[0] if 0 in row.keys() else (row["c"] if "c" in row.keys() else row[0]))
+            except Exception:
+                total = 0
+
+        return {"history": rows, "next_cursor": next_cursor, "has_more": has_more, "total": total}
 
     def get_job_timestamps_and_workflow(self, prompt_id: str) -> Optional[Dict[str, Any]]:
         """Return created_at/started_at/completed_at and workflow JSON (text) for a given prompt_id."""
