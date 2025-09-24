@@ -17,94 +17,251 @@ import hashlib
 import folder_paths
 import json
 
-class PersistentQueueManager:
-    def __init__(self):
-        self.db = QueueDatabase()
-        self.paused = False
-        self.current_job = None
-        self._installed = False
-        self._original_send_sync = None
+
+class ThumbnailService:
+    """Generates small, web-friendly thumbnails from ComfyUI output descriptors.
+
+    Single responsibility: image IO and thumbnail encoding.
+    """
+
+    def __init__(self, max_size: int = 128, quality: int = 60):
+        self.max_size = max_size
+        self.quality = quality
+
+    def generate_thumbnails_from_outputs(self, outputs: Optional[dict]) -> List[Dict[str, Any]]:
+        if not outputs:
+            return []
+        images: List[Dict[str, Any]] = self._extract_image_descriptors(outputs)
+        thumbs: List[Dict[str, Any]] = []
+        for idx, desc in enumerate(images[:4]):
+            thumb = self._encode_single_thumbnail(desc, idx)
+            if thumb is not None:
+                thumbs.append(thumb)
+        return thumbs
+
+    def _extract_image_descriptors(self, outputs: dict) -> List[Dict[str, Any]]:
+        images: List[Dict[str, Any]] = []
+        try:
+            for v in (outputs or {}).values():
+                if isinstance(v, dict):
+                    imgs = v.get('images') or (v.get('ui') or {}).get('images') or []
+                    if isinstance(imgs, list):
+                        for i in imgs:
+                            if isinstance(i, dict) and (i.get('filename') or i.get('name')):
+                                images.append(i)
+                elif isinstance(v, list):
+                    for i in v:
+                        if isinstance(i, dict) and (i.get('filename') or i.get('name')):
+                            images.append(i)
+        except Exception:
+            return []
+        return images
+
+    def _encode_single_thumbnail(self, desc: Dict[str, Any], idx: int) -> Optional[Dict[str, Any]]:
+        filename = desc.get('filename') or desc.get('name')
+        folder_type = desc.get('type') or 'output'
+        subfolder = desc.get('subfolder') or ''
+
+        base_dir = folder_paths.get_directory_by_type(folder_type)
+        if base_dir is None:
+            return None
+        img_dir = base_dir
+        if subfolder:
+            full_output_dir = os.path.join(base_dir, subfolder)
+            if os.path.commonpath((os.path.abspath(full_output_dir), base_dir)) != base_dir:
+                return None
+            img_dir = full_output_dir
+        file_path = os.path.join(img_dir, os.path.basename(filename))
+        if not os.path.isfile(file_path):
+            return None
+
+        try:
+            with Image.open(file_path) as img:
+                # Resize preserving aspect ratio to fit within max_size
+                w, h = img.size
+                scale = min(self.max_size / max(1, w), self.max_size / max(1, h), 1.0)
+                new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                if hasattr(Image, 'Resampling'):
+                    resampling = Image.Resampling.LANCZOS
+                else:
+                    resampling = Image.LANCZOS
+                thumb_img = img.convert('RGB').resize(new_size, resampling)
+                buf = BytesIO()
+                thumb_img.save(buf, format='WEBP', quality=self.quality)
+                data = buf.getvalue()
+                return {
+                    'idx': idx,
+                    'mime': 'image/webp',
+                    'width': new_size[0],
+                    'height': new_size[1],
+                    'data': data,
+                }
+        except Exception:
+            return None
+
+class QueueHookManager:
+    """Manages installation/uninstallation of queue hooks.
+
+    Responsible for wrapping prompt queue methods to add persistence and pause behavior.
+    """
+
+    def __init__(self, *, is_paused_fn: Callable[[], bool], on_job_started: Callable[[str], None], on_task_done: Callable[[Any, Any, Any], None]):
         self._original_queue_get = None
         self._original_task_done = None
-        
-    def initialize(self):
+        self._installed = False
+        self._is_paused = is_paused_fn
+        self._on_job_started = on_job_started
+        self._on_task_done = on_task_done
+
+    def install(self) -> None:
+        """Install hooks into execution.PromptQueue if not already installed."""
+        if self._installed:
+            return
+        import execution
+
+        if self._original_queue_get is None:
+            self._original_queue_get = execution.PromptQueue.get
+
+            def get_wrapper(q_self, timeout=None):
+                if self._is_paused():
+                    time.sleep(0.1)
+                    return None
+                result = self._original_queue_get(q_self, timeout=timeout)
+                if result is not None:
+                    try:
+                        item, _item_id = result
+                        prompt_id = item[1]
+                        self._on_job_started(prompt_id)
+                    except Exception as e:
+                        logging.debug(f"QueueHookManager get_wrapper failed: {e}")
+                return result
+
+            execution.PromptQueue.get = get_wrapper
+
+        if self._original_task_done is None:
+            self._original_task_done = execution.PromptQueue.task_done
+
+            def task_done_wrapper(q_self, item_id, history_result, status):
+                try:
+                    self._on_task_done((q_self, item_id, history_result, status))
+                except Exception as e:
+                    logging.debug(f"QueueHookManager task_done on_task_done failed: {e}")
+                self._original_task_done(q_self, item_id, history_result, status)
+
+            execution.PromptQueue.task_done = task_done_wrapper
+
+        self._installed = True
+
+    def uninstall(self) -> None:
+        """Restore original methods."""
+        if not self._installed:
+            return
+        import execution
+        if self._original_queue_get is not None:
+            execution.PromptQueue.get = self._original_queue_get
+            self._original_queue_get = None
+        if self._original_task_done is not None:
+            execution.PromptQueue.task_done = self._original_task_done
+            self._original_task_done = None
+        self._installed = False
+
+
+class RoutesHelper:
+    """Registers HTTP routes for the persistent queue API."""
+
+    def __init__(self, app: Any):
+        self.app = app
+
+    def register(self, manager: "PersistentQueueManager") -> None:
+        routes = [
+            web.get('/api/pqueue', manager._api_get_pqueue),
+            web.get('/api/pqueue/history', manager._api_get_history),
+            web.get('/api/pqueue/history/thumb/{history_id:\\d+}', manager._api_get_history_thumb),
+            web.get('/api/pqueue/preview', manager._api_preview_image),
+            web.post('/api/pqueue/pause', manager._api_pause),
+            web.post('/api/pqueue/resume', manager._api_resume),
+            web.post('/api/pqueue/reorder', manager._api_reorder),
+            web.patch('/api/pqueue/priority', manager._api_priority),
+            web.post('/api/pqueue/delete', manager._api_delete),
+        ]
+        self.app.add_routes(routes)
+
+
+class PersistentQueueManager:
+    """Coordinator for persistent queue persistence, API handlers, and hooks."""
+
+    def __init__(self):
+        self.db: QueueDatabase = QueueDatabase()
+        self.thumbs: ThumbnailService = ThumbnailService(max_size=128, quality=60)
+        self.paused: bool = False
+        self.current_job: Optional[Any] = None
+        self._installed: bool = False
+        self._hooks: Optional[QueueHookManager] = None
+
+    def initialize(self) -> None:
         """Install hooks and API routes after PromptServer is created."""
         if self._installed:
             return
 
         # Import here to avoid circular dependencies
         from server import PromptServer
-        import execution
-
-        server_instance = PromptServer.instance
 
         # Register on-prompt handler to persist incoming prompts
-        server_instance.add_on_prompt_handler(self._on_prompt)
+        PromptServer.instance.add_on_prompt_handler(self._on_prompt)
 
-        # Monkey-patch PromptQueue.get to support pause and mark jobs running
-        if self._original_queue_get is None:
-            self._original_queue_get = execution.PromptQueue.get
-
-            def get_wrapper(q_self, timeout=None):
-                if self.paused:
-                    time.sleep(0.1)
-                    return None
-                result = self._original_queue_get(q_self, timeout=timeout)
-                if result is not None:
-                    try:
-                        item, item_id = result
-                        # item: (number, prompt_id, prompt, extra_data, outputs_to_execute)
-                        prompt_id = item[1]
-                        self.db.update_job_status(prompt_id, 'running')
-                    except Exception as e:
-                        logging.debug(f"PersistentQueue get_wrapper mark running failed: {e}")
-                return result
-
-            execution.PromptQueue.get = get_wrapper
-
-        # Monkey-patch PromptQueue.task_done to persist results/history
-        if self._original_task_done is None:
-            self._original_task_done = execution.PromptQueue.task_done
-
-            def task_done_wrapper(q_self, item_id, history_result, status):
-                # Capture before original pops it
-                item = q_self.currently_running.get(item_id)
-                try:
-                    if item is not None:
-                        prompt_id = item[1]
-                        prompt = item[2]
-                        status_str = status.status_str if status is not None else 'success'
-                        completed = (status.completed if status is not None else True)
-                        new_state = 'completed' if completed else 'failed'
-                        # Persist history and thumbnails BEFORE notifying original logic, to avoid UI race
-                        self.db.update_job_status(prompt_id, new_state, error=None if completed else status_str)
-                        history_id = self.db.add_history(
-                            prompt_id=prompt_id,
-                            workflow=prompt,
-                            outputs=history_result.get('outputs', {}),
-                            status=status_str,
-                            duration_seconds=None,
-                        )
-                        try:
-                            thumbs = self._generate_thumbnails_from_outputs(history_result.get('outputs', {}))
-                            if thumbs:
-                                self.db.save_history_thumbnails(history_id, thumbs)
-                        except Exception as te:
-                            logging.debug(f"PersistentQueue: failed to save thumbnails: {te}")
-                except Exception as e:
-                    logging.debug(f"PersistentQueue task_done wrapper persist failed: {e}")
-                # Call original last so websocket updates happen after persistence
-                self._original_task_done(q_self, item_id, history_result, status)
-
-            execution.PromptQueue.task_done = task_done_wrapper
+        # Install queue hooks
+        self._hooks = QueueHookManager(
+            is_paused_fn=lambda: self.paused,
+            on_job_started=lambda prompt_id: self.db.update_job_status(prompt_id, 'running'),
+            on_task_done=self._on_task_done_persist,
+        )
+        self._hooks.install()
 
         # Add API routes
-        self._install_api_routes()
+        try:
+            app = PromptServer.instance.app
+            RoutesHelper(app).register(self)
+        except Exception as e:
+            logging.debug(f"PersistentQueue add routes failed: {e}")
 
         # Restore pending jobs on startup
         self._schedule_restore_pending_jobs()
 
         self._installed = True
+
+    def _on_task_done_persist(self, args: Tuple[Any, Any, Any]) -> None:
+        """Persist history and generate thumbnails before original task_done completes.
+
+        Args:
+            args: Tuple of (q_self, item_id, history_result, status) from task_done wrapper.
+        """
+        try:
+            q_self, item_id, history_result, status = args
+            item = q_self.currently_running.get(item_id)
+            if item is None:
+                return
+            prompt_id = item[1]
+            prompt = item[2]
+            status_str = status.status_str if status is not None else 'success'
+            completed = (status.completed if status is not None else True)
+            new_state = 'completed' if completed else 'failed'
+            # Persist history and thumbnails BEFORE notifying original logic, to avoid UI race
+            self.db.update_job_status(prompt_id, new_state, error=None if completed else status_str)
+            history_id = self.db.add_history(
+                prompt_id=prompt_id,
+                workflow=prompt,
+                outputs=history_result.get('outputs', {}),
+                status=status_str,
+                duration_seconds=None,
+            )
+            try:
+                thumbs = self.thumbs.generate_thumbnails_from_outputs(history_result.get('outputs', {}))
+                if thumbs:
+                    self.db.save_history_thumbnails(history_id, thumbs)
+            except Exception as te:
+                logging.debug(f"PersistentQueue: failed to save thumbnails: {te}")
+        except Exception as e:
+            logging.debug(f"PersistentQueue _on_task_done_persist failed: {e}")
     
     def _on_prompt(self, json_data: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -204,67 +361,7 @@ class PersistentQueueManager:
         limit = int(request.rel_url.query.get("limit", "50"))
         return web.json_response({"history": self.db.list_history(limit=limit)})
 
-    def _generate_thumbnails_from_outputs(self, outputs: Optional[dict]) -> List[Dict[str, Any]]:
-        if not outputs:
-            return []
-        images = []
-        try:
-            for v in (outputs or {}).values():
-                if isinstance(v, dict):
-                    imgs = v.get('images') or (v.get('ui') or {}).get('images') or []
-                    if isinstance(imgs, list):
-                        for i in imgs:
-                            if isinstance(i, dict) and (i.get('filename') or i.get('name')):
-                                images.append(i)
-                elif isinstance(v, list):
-                    for i in v:
-                        if isinstance(i, dict) and (i.get('filename') or i.get('name')):
-                            images.append(i)
-        except Exception:
-            images = []
-
-        thumbs: List[Dict[str, Any]] = []
-        max_thumbs = 4
-        for idx, i in enumerate(images[:max_thumbs]):
-            filename = i.get('filename') or i.get('name')
-            ftype = i.get('type') or 'output'
-            subfolder = i.get('subfolder') or ''
-            base_dir = folder_paths.get_directory_by_type(ftype)
-            if base_dir is None:
-                continue
-            img_dir = base_dir
-            if subfolder:
-                full_output_dir = os.path.join(base_dir, subfolder)
-                if os.path.commonpath((os.path.abspath(full_output_dir), base_dir)) != base_dir:
-                    continue
-                img_dir = full_output_dir
-            file_path = os.path.join(img_dir, os.path.basename(filename))
-            if not os.path.isfile(file_path):
-                continue
-            try:
-                with Image.open(file_path) as img:
-                    # Contain to 128x128 and encode WEBP with quality 60
-                    if hasattr(Image, 'Resampling'):
-                        resampling = Image.Resampling.LANCZOS
-                    else:
-                        resampling = Image.LANCZOS
-                    w, h = img.size
-                    scale = min(128 / max(1, w), 128 / max(1, h), 1.0)
-                    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
-                    thumb_img = img.convert('RGB').resize(new_size, resampling)
-                    buf = BytesIO()
-                    thumb_img.save(buf, format='WEBP', quality=60)
-                    data = buf.getvalue()
-                    thumbs.append({
-                        'idx': idx,
-                        'mime': 'image/webp',
-                        'width': new_size[0],
-                        'height': new_size[1],
-                        'data': data,
-                    })
-            except Exception:
-                continue
-        return thumbs
+    # _generate_thumbnails_from_outputs removed in favor of ThumbnailService
 
     async def _api_pause(self, request: web.Request) -> web.Response:
         self.pause_queue()
