@@ -142,6 +142,10 @@
         selectedPending: new Set(),
         filters: {
             pending: "",
+            historySince: "",
+            historyUntil: "",
+            historySinceTime: "",
+            historyUntilTime: "",
         },
         historyIds: new Set(),
         historyPaging: {
@@ -705,11 +709,117 @@
             const sentinel = UI.historySentinel();
             state.dom.historySentinel = sentinel;
             grid.appendChild(sentinel);
-            return UI.card("Recent history", {
+            const base = state.metrics.historyCount ? `${state.metrics.historyCount} entries` : null;
+            const range = UI.currentHistoryRangeLabel();
+            const subtitle = [base, range].filter(Boolean).join(' • ');
+            const card = UI.card("Recent history", {
                 icon: "ti ti-clock-bolt",
-                subtitle: state.metrics.historyCount ? `${state.metrics.historyCount} entries` : null,
+                subtitle,
+                actions: UI.historyFilters(),
                 content: grid,
             });
+            state.dom.historyCard = card;
+            state.dom.historySubtitle = card.querySelector('.pqueue-card__subtitle');
+            return card;
+        },
+
+        currentHistoryRangeLabel() {
+            try {
+                const sDate = state.filters?.historySince || "";
+                const sTime = state.filters?.historySinceTime || "";
+                const uDate = state.filters?.historyUntil || "";
+                const uTime = state.filters?.historyUntilTime || "";
+                if (!sDate && !uDate) return "";
+                if (state.historyPreset === 'today') return 'Today';
+                if (state.historyPreset === '24h') return 'Last 24h';
+                if (state.historyPreset === '7d') return 'Last 7 days';
+                const compact = (d, t, end) => {
+                    if (!d) return '';
+                    const parts = d.split('-').map((x) => parseInt(x, 10));
+                    let hh = end ? 23 : 0, mm = end ? 59 : 0;
+                    if (t && /^\d{2}:\d{2}/.test(t)) {
+                        const tt = t.split(':').map((x) => parseInt(x, 10));
+                        hh = tt[0] ?? hh; mm = tt[1] ?? mm;
+                    }
+                    const pad = (n) => String(n).padStart(2, '0');
+                    return `${parts[0]}-${pad(parts[1])}-${pad(parts[2])} ${pad(hh)}:${pad(mm)}`;
+                };
+                const left = compact(sDate, sTime, false);
+                const right = compact(uDate, uTime, true);
+                if (left && right) return `${left} – ${right}`;
+                if (left) return `Since ${left}`;
+                if (right) return `Until ${right}`;
+                return "";
+            } catch (err) {
+                return "";
+            }
+        },
+
+        updateHistorySubtitle() {
+            try {
+                const el = state.dom.historySubtitle;
+                if (!el) return;
+                const base = state.metrics?.historyCount ? `${state.metrics.historyCount} entries` : null;
+                const range = UI.currentHistoryRangeLabel();
+                const text = [base, range].filter(Boolean).join(' • ');
+                el.textContent = text;
+            } catch (err) {
+                /* noop */
+            }
+        },
+
+        historyFilters() {
+            const filtersBtn = UI.button({ icon: "ti ti-filter", variant: "ghost", subtle: true, title: "Filters" });
+            const sortToggle = UI.sortToggleButton();
+
+            filtersBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                Events.toggleFiltersPopover(e.currentTarget);
+            });
+            document.addEventListener('click', (ev) => {
+                const pop = state.dom.filtersPopover;
+                if (pop && !pop.contains(ev.target) && ev.target !== filtersBtn) {
+                    pop.remove();
+                    state.dom.filtersPopover = null;
+                }
+            }, { once: true });
+
+            return [filtersBtn, sortToggle, UI.clearFiltersIcon()];
+        },
+
+        clearFiltersIcon() {
+            const btn = UI.button({ icon: "ti ti-x", variant: "ghost", subtle: true, title: "Clear filters" });
+            btn.addEventListener('click', () => Events.applyHistoryPreset('clear'));
+            return btn;
+        },
+
+        sortToggleButton() {
+            const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
+            const icon = dir === 'asc' ? 'ti ti-arrow-bar-to-up' : 'ti ti-arrow-bar-to-down';
+            const title = dir === 'asc' ? 'Sort ascending (click to toggle)' : 'Sort descending (click to toggle)';
+            const btn = UI.button({ icon, variant: 'ghost', subtle: true, title });
+            btn.addEventListener('click', () => {
+                const current = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
+                const next = current === 'asc' ? 'desc' : 'asc';
+                Events.setHistorySort(next);
+                UI.updateSortToggle();
+            });
+            state.dom.sortToggleBtn = btn;
+            return btn;
+        },
+
+        updateSortToggle() {
+            try {
+                const btn = state.dom.sortToggleBtn;
+                if (!btn) return;
+                const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
+                const icon = dir === 'asc' ? 'ti ti-arrow-bar-to-up' : 'ti ti-arrow-bar-to-down';
+                btn.innerHTML = '';
+                btn.appendChild(UI.icon(icon));
+                btn.title = dir === 'asc' ? 'Sort ascending (click to toggle)' : 'Sort descending (click to toggle)';
+            } catch (err) {
+                /* noop */
+            }
         },
 
         historySentinel() {
@@ -854,6 +964,41 @@
             } catch (err) {
                 /* noop */
             }
+        },
+
+        buildFiltersPopover(anchor) {
+            const since = UI.el("input", { type: "date", class: "pqueue-input", value: state.filters?.historySince || "" });
+            const sinceTime = UI.el("input", { type: "time", class: "pqueue-input", value: state.filters?.historySinceTime || "" });
+            const until = UI.el("input", { type: "date", class: "pqueue-input", value: state.filters?.historyUntil || "" });
+            const untilTime = UI.el("input", { type: "time", class: "pqueue-input", value: state.filters?.historyUntilTime || "" });
+            const onChange = () => Events.updateHistoryDateFilters(since.value, until.value, sinceTime.value, untilTime.value);
+            since.addEventListener("change", onChange);
+            sinceTime.addEventListener("change", onChange);
+            until.addEventListener("change", onChange);
+            untilTime.addEventListener("change", onChange);
+
+            const presets = UI.el("div", { class: "pqueue-popover__section" }, [
+                UI.button({ text: "Today", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("today") }),
+                UI.button({ text: "Last 24h", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("24h") }),
+                UI.button({ text: "Last 7d", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("7d") }),
+                UI.button({ text: "Clear", variant: "ghost", subtle: true, size: "sm", onClick: () => Events.applyHistoryPreset("clear") }),
+            ]);
+
+            const dates = UI.el("div", { class: "pqueue-popover__grid" }, [since, sinceTime, until, untilTime]);
+
+            const pop = UI.el('div', { class: 'pqueue-popover' }, [
+                UI.el('div', { class: 'pqueue-popover__section' }, [UI.el('strong', { text: 'Date range' })]),
+                dates,
+                UI.el('div', { class: 'pqueue-popover__section' }, [UI.el('strong', { text: 'Presets' })]),
+                presets
+            ]);
+            // Position near anchor
+            try {
+                const rect = anchor.getBoundingClientRect();
+                pop.style.top = `${rect.bottom + 8 + window.scrollY}px`;
+                pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 360)}px`;
+            } catch (err) {}
+            return pop;
         },
 
         refreshFilter() {
