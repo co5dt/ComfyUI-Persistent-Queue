@@ -128,6 +128,32 @@ class QueueDatabase:
         with self._get_conn() as conn:
             conn.execute('UPDATE queue_items SET priority = ? WHERE prompt_id = ?', (new_priority, prompt_id))
 
+    def update_job_name(self, prompt_id: str, new_name: str) -> bool:
+        """Update the human-friendly name in the stored workflow JSON.
+
+        Attempts to set either workflow.name (nested) or top-level name, depending on structure.
+        Returns True on success, False if no such job.
+        """
+        with self._get_conn() as conn:
+            cur = conn.execute('SELECT workflow FROM queue_items WHERE prompt_id = ? LIMIT 1', (prompt_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            wf_text = row['workflow']
+            try:
+                wf = json.loads(wf_text) if isinstance(wf_text, str) else (wf_text or {})
+            except Exception:
+                wf = {}
+            # Prefer nested workflow.name if object contains a workflow field
+            if isinstance(wf, dict):
+                if isinstance(wf.get('workflow'), dict):
+                    wf['workflow']['name'] = str(new_name)
+                else:
+                    wf['name'] = str(new_name)
+            updated = json.dumps(wf) if wf is not None else None
+            conn.execute('UPDATE queue_items SET workflow = ? WHERE prompt_id = ?', (updated, prompt_id))
+            return True
+
     def add_history(
         self,
         prompt_id: str,

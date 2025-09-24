@@ -273,6 +273,7 @@ class RoutesHelper:
             web.post('/api/pqueue/reorder', manager._api_reorder),
             web.patch('/api/pqueue/priority', manager._api_priority),
             web.post('/api/pqueue/delete', manager._api_delete),
+            web.patch('/api/pqueue/rename', manager._api_rename),
         ]
         self.app.add_routes(routes)
 
@@ -508,6 +509,39 @@ class PersistentQueueManager:
             return web.json_response({"ok": True})
         except Exception as e:
             logging.warning(f"PersistentQueue delete failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+    async def _api_rename(self, request: web.Request) -> web.Response:
+        try:
+            from server import PromptServer
+            body = await request.json()
+            prompt_id: str = body.get('prompt_id')
+            new_name: str = body.get('name')
+            if not prompt_id or new_name is None:
+                return web.json_response({"ok": False, "error": "prompt_id and name required"}, status=400)
+            # Persist to DB
+            ok = self.db.update_job_name(prompt_id, str(new_name))
+            if not ok:
+                return web.json_response({"ok": False, "error": "job not found"}, status=404)
+            # Update in-memory queue copy to reflect quickly
+            q = PromptServer.instance.prompt_queue
+            with q.mutex:
+                for idx, item in enumerate(list(q.queue)):
+                    try:
+                        if item[1] == prompt_id:
+                            # item = (number, prompt_id, prompt, extra_data, outputs_to_execute)
+                            prompt = item[2]
+                            if isinstance(prompt, dict):
+                                if isinstance(prompt.get('workflow'), dict):
+                                    prompt['workflow']['name'] = str(new_name)
+                                else:
+                                    prompt['name'] = str(new_name)
+                                q.queue[idx] = (item[0], item[1], prompt, item[3], item[4])
+                    except Exception:
+                        pass
+            return web.json_response({"ok": True})
+        except Exception as e:
+            logging.warning(f"PersistentQueue rename failed: {e}")
             return web.json_response({"ok": False, "error": str(e)}, status=400)
 
     def _rebuild_queue_by_prompt_ids(self, ordered_prompt_ids: List[str]) -> None:

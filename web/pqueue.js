@@ -27,6 +27,12 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ prompt_ids }),
             }),
+        rename: (prompt_id, name) =>
+            fetch("/api/pqueue/rename", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt_id, name }),
+            }),
     };
 
     const Icons = {
@@ -579,6 +585,49 @@
 
             const status = UI.statusBadge(db.status || "pending", { subtle: true });
             const primaryLabel = UI.buildWorkflowLabel(pid, item, db);
+            primaryLabel.contentEditable = "true";
+            primaryLabel.spellcheck = false;
+            primaryLabel.dataset.id = pid;
+            primaryLabel.dataset.original = primaryLabel.textContent || "";
+            primaryLabel.classList.add("pqueue-editable");
+            const finishEdit = async (node, save) => {
+                try {
+                    const id = node?.dataset?.id;
+                    if (!id) return;
+                    const original = node.dataset.original || "";
+                    const current = (node.textContent || "").trim();
+                    if (!save) {
+                        node.textContent = original;
+                        return;
+                    }
+                    if (current === original || !current) return;
+                    await API.rename(id, current);
+                    state.workflowNameCache.set(id, current);
+                    setStatusMessage("Name updated");
+                } catch (err) {
+                    console.error("pqueue: rename failed", err);
+                    state.error = err?.message || "Failed to rename";
+                    UI.updateToolbarStatus();
+                } finally {
+                    node.dataset.original = node.textContent || "";
+                }
+            };
+            primaryLabel.addEventListener("keydown", async (e) => {
+                e.stopPropagation();
+                const target = e.currentTarget;
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    await finishEdit(target, true);
+                    target.blur();
+                } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    await finishEdit(target, false);
+                    target.blur();
+                }
+            });
+            primaryLabel.addEventListener("blur", async (e) => {
+                await finishEdit(e.currentTarget, true);
+            });
             const line1 = UI.el("div", { class: "pqueue-pcard__line1" }, [
                 UI.el("div", { class: "pqueue-pcard__l1-left" }, [checkbox, primaryLabel]),
                 UI.el("div", { class: "pqueue-pcard__l1-right" }, [UI.el("span", { class: "pqueue-muted", text: db.created_at ? Format.relative(db.created_at) : "—" })])
