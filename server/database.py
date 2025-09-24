@@ -67,6 +67,27 @@ class QueueDatabase:
                     UNIQUE(history_id, idx)
                 )
             ''')
+            # Helpful indexes for pagination and filtering
+            try:
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_job_history_status ON job_history(status)')
+            except Exception:
+                pass
+            try:
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_job_history_completed_at ON job_history(completed_at)')
+            except Exception:
+                pass
+            try:
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_job_history_created_at ON job_history(created_at)')
+            except Exception:
+                pass
+            try:
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_job_history_duration ON job_history(duration_seconds)')
+            except Exception:
+                pass
+            try:
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_history_thumbs_history_id ON history_thumbs(history_id)')
+            except Exception:
+                pass
             # No schema migrations for now; keep it simple
     
     def add_job(self, prompt_id: str, workflow: dict, priority: int = 0) -> None:
@@ -269,6 +290,112 @@ class QueueDatabase:
                 'SELECT * FROM job_history ORDER BY id DESC LIMIT ?', (limit,)
             )
             return [dict(row) for row in cur.fetchall()]
+
+    def list_history_paginated(
+        self,
+        *,
+        limit: int = 50,
+        sort_by: str = "id",
+        sort_dir: str = "desc",
+        cursor_id: Optional[int] = None,
+        cursor_value: Optional[Any] = None,
+        status: Optional[str] = None,
+        q: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        min_duration: Optional[float] = None,
+        max_duration: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Keyset paginated history listing supporting basic filtering and sorting.
+
+        Returns a dict: { 'history': [...], 'next_cursor': { 'id': int, 'value': any }|None, 'has_more': bool }
+        """
+        # Normalize and validate inputs
+        sort_by = (sort_by or "id").lower()
+        if sort_by not in ("id", "completed_at", "created_at", "duration_seconds"):
+            sort_by = "id"
+        sort_dir = (sort_dir or "desc").lower()
+        if sort_dir not in ("asc", "desc"):
+            sort_dir = "desc"
+        dir_op = ">" if sort_dir == "asc" else "<"
+
+        where_clauses: List[str] = []
+        params: List[Any] = []
+
+        if status:
+            where_clauses.append("LOWER(status) = LOWER(?)")
+            params.append(status)
+
+        # Time range filters apply to completed_at when available, else created_at
+        # For simplicity, filter both columns when provided
+        if since:
+            where_clauses.append("(completed_at >= ? OR (completed_at IS NULL AND created_at >= ?))")
+            params.extend([since, since])
+        if until:
+            where_clauses.append("(completed_at <= ? OR (completed_at IS NULL AND created_at <= ?))")
+            params.extend([until, until])
+
+        if min_duration is not None:
+            where_clauses.append("duration_seconds >= ?")
+            params.append(float(min_duration))
+        if max_duration is not None:
+            where_clauses.append("duration_seconds <= ?")
+            params.append(float(max_duration))
+
+        if q:
+            like = f"%{q}%"
+            where_clauses.append("(prompt_id LIKE ? OR (workflow IS NOT NULL AND workflow LIKE ?) OR (outputs IS NOT NULL AND outputs LIKE ?))")
+            params.extend([like, like, like])
+
+        # Keyset pagination cursor
+        keyset_clause = None
+        if sort_by == "id":
+            if cursor_id is not None:
+                keyset_clause = f"id {dir_op} ?"
+                params.append(int(cursor_id))
+        else:
+            if cursor_value is not None and cursor_id is not None:
+                # Composite keyset for stable ordering
+                cmp = ">" if sort_dir == "asc" else "<"
+                keyset_clause = f"(({sort_by} {cmp} ?) OR ({sort_by} = ? AND id {cmp} ?))"
+                params.extend([cursor_value, cursor_value, int(cursor_id)])
+
+        if keyset_clause:
+            where_clauses.append(keyset_clause)
+
+        where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        order_sql = f" ORDER BY {sort_by} {sort_dir.upper()}, id {sort_dir.upper()}"
+
+        rows: List[Dict[str, Any]] = []
+        has_more = False
+        next_cursor: Optional[Dict[str, Any]] = None
+        with self._get_conn() as conn:
+            # backfill pass once per process lifetime
+            try:
+                if not self._backfilled_once:
+                    self._backfill_history_rows(conn)
+                    self._backfilled_once = True
+            except Exception:
+                pass
+
+            sql = f"SELECT * FROM job_history{where_sql}{order_sql} LIMIT ?"
+            try:
+                cur = conn.execute(sql, (*params, int(limit) + 1))
+                fetched = [dict(row) for row in cur.fetchall()]
+            except Exception:
+                fetched = []
+
+            if len(fetched) > int(limit):
+                has_more = True
+                fetched = fetched[: int(limit)]
+
+            rows = fetched
+            if rows:
+                last = rows[-1]
+                val = last.get(sort_by)
+                next_cursor = {"id": last.get("id"), "value": val}
+
+        return {"history": rows, "next_cursor": next_cursor, "has_more": has_more}
 
     def get_job_timestamps_and_workflow(self, prompt_id: str) -> Optional[Dict[str, Any]]:
         """Return created_at/started_at/completed_at and workflow JSON (text) for a given prompt_id."""

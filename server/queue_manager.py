@@ -457,8 +457,62 @@ class PersistentQueueManager:
         })
 
     async def _api_get_history(self, request: web.Request) -> web.Response:
-        limit = int(request.rel_url.query.get("limit", "50"))
-        return web.json_response({"history": self.db.list_history(limit=limit)})
+        # Support both simple and paginated calls. Frontend can pass sort/filter + cursor for keyset pagination.
+        q = request.rel_url.query
+        try:
+            limit = int(q.get("limit", "50"))
+        except Exception:
+            limit = 50
+
+        sort_by = q.get("sort_by") or "id"
+        sort_dir = q.get("sort_dir") or "desc"
+
+        # Cursor-based pagination
+        cursor_id = None
+        cursor_value = None
+        try:
+            if q.get("cursor_id") is not None:
+                cursor_id = int(q.get("cursor_id"))
+        except Exception:
+            cursor_id = None
+        if q.get("cursor_value") is not None:
+            cursor_value = q.get("cursor_value")
+
+        status = q.get("status")
+        search_q = q.get("q")
+        since = q.get("since")
+        until = q.get("until")
+        try:
+            min_duration = float(q.get("min_duration")) if q.get("min_duration") is not None else None
+        except Exception:
+            min_duration = None
+        try:
+            max_duration = float(q.get("max_duration")) if q.get("max_duration") is not None else None
+        except Exception:
+            max_duration = None
+
+        # If only limit is provided and no advanced params, keep legacy behavior
+        legacy_mode = (
+            (q.keys() <= {"limit"}) or
+            (set(q.keys()) == set() )
+        )
+        if legacy_mode:
+            return web.json_response({"history": self.db.list_history(limit=limit)})
+
+        result = self.db.list_history_paginated(
+            limit=limit,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            cursor_id=cursor_id,
+            cursor_value=cursor_value,
+            status=status,
+            q=search_q,
+            since=since,
+            until=until,
+            min_duration=min_duration,
+            max_duration=max_duration,
+        )
+        return web.json_response(result)
 
     # _generate_thumbnails_from_outputs removed in favor of ThumbnailService
 
