@@ -430,7 +430,7 @@
             UI.updateToolbarStatus();
         },
 
-			renderToolbar() {
+        renderToolbar() {
             const pauseBtn = UI.button({
                 id: "pqueue-toggle",
                 icon: state.paused ? "ti ti-player-play-filled" : "ti ti-player-pause-filled",
@@ -447,34 +447,12 @@
                 variant: "danger",
                 subtle: true,
             });
-            const refreshBtn = UI.button({ id: "pqueue-refresh", icon: "ti ti-refresh", ariaLabel: "Refresh", title: "Refresh", variant: "ghost", subtle: true });
 
-            const filter = UI.el("input", {
-                id: "pqueue-filter",
-                class: "pqueue-input",
-                type: "search",
-                placeholder: "Filter pending by prompt, status, error…",
-                value: state.filters.pending,
-                spellcheck: "false",
-            });
-
-            const summary = UI.el("div", { class: "pqueue-toolbar__summary" }, [
-                UI.el("span", { class: "pqueue-summary__item", text: `${state.metrics.queueCount} in queue` }),
-                UI.el("span", { class: "pqueue-summary__item", text: `${state.metrics.runningCount} running` }),
-                UI.el("span", { class: "pqueue-summary__item", text: `${state.metrics.historyCount} recent` }),
-            ]);
-
-            const status = UI.el("div", { class: "pqueue-toolbar__status" });
-
-            state.dom.filterInput = filter;
-            state.dom.status = status;
-
+            // Minimal toolbar: only pause/resume and clear
             return UI.el("div", { class: "pqueue-toolbar" }, [
                 UI.el("div", { class: "pqueue-toolbar__row" }, [
-                    UI.el("div", { class: "pqueue-toolbar__group" }, [pauseBtn, clearBtn, refreshBtn]),
-                    status,
+                    UI.el("div", { class: "pqueue-toolbar__group" }, [pauseBtn, clearBtn]),
                 ]),
-                UI.el("div", { class: "pqueue-toolbar__row pqueue-toolbar__row--secondary" }, [filter, summary]),
             ]);
         },
 
@@ -514,8 +492,8 @@
             if (!state.queue_running.length) {
                 rows.push(UI.emptyState({
                     icon: "ti ti-player-play",
-                    title: "No running jobs",
-                    description: "Prompts start running after the queue resumes",
+                    title: "No running job",
+                    description: "Prompt will start running after the queue resumes",
                 }));
             } else {
                 state.queue_running.forEach((item, index) => {
