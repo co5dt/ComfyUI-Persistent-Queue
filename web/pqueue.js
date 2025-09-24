@@ -442,12 +442,10 @@
                             class: "pqueue-checkbox pqueue-select-all",
                             title: "Select all visible",
                         }),
-                        UI.el("span", { class: "pqueue-table__heading", text: "Prompt" }),
+                        UI.el("span", { class: "pqueue-table__heading", text: "Workflow" }),
                     ]),
                 ]),
                 UI.el("div", { class: "pqueue-col pqueue-col--submitted" }, [UI.el("span", { class: "pqueue-table__heading", text: "Submitted" })]),
-                UI.el("div", { class: "pqueue-col pqueue-col--updated" }, [UI.el("span", { class: "pqueue-table__heading", text: "Last attempt" })]),
-                UI.el("div", { class: "pqueue-col pqueue-col--priority" }, [UI.el("span", { class: "pqueue-table__heading", text: "Priority" })]),
                 UI.el("div", { class: "pqueue-col pqueue-col--estimate" }, [UI.el("span", { class: "pqueue-table__heading", text: "Estimate" })]),
                 UI.el("div", { class: "pqueue-col pqueue-col--actions" }, [UI.el("span", { class: "pqueue-table__heading", text: "Actions" })]),
             ]);
@@ -526,51 +524,41 @@
 
             const submitted = db.created_at ? Format.relative(db.created_at) : "—";
             const submittedMeta = db.created_at ? Format.datetime(db.created_at) : "";
-            const lastAttempt = db.completed_at || db.started_at;
-            const lastAttemptLabel = lastAttempt ? Format.relative(lastAttempt) : "—";
-            const lastAttemptMeta = lastAttempt ? Format.datetime(lastAttempt) : "";
-
-            const priorityInput = UI.el("input", {
-                type: "number",
-                class: "pqueue-input pqueue-priority",
-                min: "-9999",
-                max: "9999",
-                step: "1",
-                value: String(priority),
-                "data-id": pid,
-            });
-
-            const saveBtn = UI.button({ icon: "ti ti-device-floppy", variant: "ghost", subtle: true, title: "Save priority" });
-            saveBtn.dataset.action = "save-priority";
-            saveBtn.dataset.id = pid;
 
             const deleteBtn = UI.button({ icon: "ti ti-trash", variant: "danger", subtle: true, title: "Delete" });
             deleteBtn.dataset.action = "delete";
             deleteBtn.dataset.id = pid;
 
-            const viewBtn = UI.button({ icon: "ti ti-code", variant: "ghost", subtle: true, title: "View workflow" });
-            viewBtn.dataset.action = "view";
-            viewBtn.dataset.id = pid;
+            const moveTopBtn = UI.button({ icon: "ti ti-arrow-bar-to-up", variant: "ghost", subtle: true, title: "Move to top" });
+            moveTopBtn.dataset.action = "move-top";
+            moveTopBtn.dataset.id = pid;
+
+            const moveBottomBtn = UI.button({ icon: "ti ti-arrow-bar-to-down", variant: "ghost", subtle: true, title: "Move to bottom" });
+            moveBottomBtn.dataset.action = "move-bottom";
+            moveBottomBtn.dataset.id = pid;
 
             const estimateSeconds = UI.estimateDuration(pid, item[2]);
             const estimateLabel = estimateSeconds ? Format.duration(estimateSeconds) : "—";
             const estimateMeta = estimateSeconds ? "Typical runtime" : "";
 
             const colPrompt = UI.el("div", { class: "pqueue-col pqueue-col--prompt pqueue-col--sticky" }, [primary]);
-            const colSubmitted = UI.el("div", { class: "pqueue-col pqueue-col--submitted" }, [UI.el("span", { class: "pqueue-cell__primary", text: submitted }), UI.el("span", { class: "pqueue-cell__secondary", text: submittedMeta })]);
-            const colUpdated = UI.el("div", { class: "pqueue-col pqueue-col--updated" }, [UI.el("span", { class: "pqueue-cell__primary", text: lastAttemptLabel }), UI.el("span", { class: "pqueue-cell__secondary", text: lastAttemptMeta })]);
-            const colPriority = UI.el("div", { class: "pqueue-col pqueue-col--priority" }, [priorityInput, saveBtn]);
-            const colEstimate = UI.el("div", { class: "pqueue-col pqueue-col--estimate" }, [UI.el("span", { class: "pqueue-cell__primary", text: estimateLabel }), UI.el("span", { class: "pqueue-cell__secondary", text: estimateMeta })]);
-            const colActions = UI.el("div", { class: "pqueue-col pqueue-col--actions" }, [viewBtn, deleteBtn]);
+            const colSubmitted = UI.el("div", { class: "pqueue-col pqueue-col--submitted" }, [
+                UI.el("span", { class: "pqueue-cell__primary", text: submitted }),
+                UI.el("span", { class: "pqueue-cell__secondary", text: submittedMeta })
+            ]);
+            const colEstimate = UI.el("div", { class: "pqueue-col pqueue-col--estimate" }, [
+                UI.el("span", { class: "pqueue-cell__primary", text: estimateLabel }),
+                UI.el("span", { class: "pqueue-cell__secondary", text: estimateMeta })
+            ]);
+            const actionsWrap = UI.el("div", { class: "pqueue-actions-group" }, [deleteBtn, moveTopBtn, moveBottomBtn]);
+            const colActions = UI.el("div", { class: "pqueue-col pqueue-col--actions" }, [actionsWrap]);
 
             row.appendChild(colPrompt);
             row.appendChild(colSubmitted);
-            row.appendChild(colUpdated);
-            row.appendChild(colPriority);
             row.appendChild(colEstimate);
             row.appendChild(colActions);
 
-            row.dataset.search = [pid, db.status, db.error, priority, db.created_at, db.completed_at].filter(Boolean).join(" ").toLowerCase();
+            row.dataset.search = [state.workflowNameCache.get(pid) || "", db.status, db.error, db.created_at].filter(Boolean).join(" ").toLowerCase();
             return row;
         },
 
