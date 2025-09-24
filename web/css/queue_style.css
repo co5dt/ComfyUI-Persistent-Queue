@@ -1,4 +1,4 @@
-.pqueue-root{display:flex;flex-direction:column;gap:1rem;height:100%;color:var(--common-text,#e5e7eb);font-size:13px;line-height:1.4}
+.pqueue-root{display:flex;flex-direction:column;gap:1rem;height:100%;color:var(--common-text,#e5e7eb);font-size:13px;line-height:1.4;padding:0 4px}
 .pqueue-root a{color:inherit}
 .pqueue-toolbar{display:flex;flex-direction:column;gap:.75rem;padding:.75rem 1rem;border-radius:12px;background:#1b1b1b;box-shadow:0 1px 2px rgba(0,0,0,.24)}
 .pqueue-toolbar__row{display:flex;gap:.75rem;align-items:center;justify-content:space-between;flex-wrap:wrap}
