@@ -482,116 +482,138 @@ class PersistentQueueManager:
             return web.Response(status=500)
 
     async def _api_preview_image(self, request: web.Request) -> web.Response:
+        """Serve cached previews with embedded workflow metadata if available.
+
+        Splits concerns into small helpers to keep logic simple (KISS/DRY).
+        """
         try:
-            filename = request.rel_url.query.get('filename')
-            subfolder = request.rel_url.query.get('subfolder', '')
-            folder_type = request.rel_url.query.get('type', 'output')
-            pid = request.rel_url.query.get('pid')
-            preview_q = request.rel_url.query.get('preview', 'webp;50')
-            preview_info = preview_q.split(';')
-            image_format = preview_info[0] if preview_info else 'webp'
-            if image_format not in ['webp', 'jpeg', 'png']:
-                image_format = 'webp'
-            quality = 90
-            if len(preview_info) > 1 and preview_info[-1].isdigit():
-                quality = int(preview_info[-1])
-
-            # Resolve file path similar to /view
-            base_dir = folder_paths.get_directory_by_type(folder_type)
-            if base_dir is None:
+            params = self._parse_preview_params(request)
+            file = self._resolve_preview_filepath(params)
+            if file is None:
                 return web.Response(status=400)
-            output_dir = base_dir
-            if subfolder:
-                full_output_dir = os.path.join(base_dir, subfolder)
-                if os.path.commonpath((os.path.abspath(full_output_dir), base_dir)) != base_dir:
-                    return web.Response(status=403)
-                output_dir = full_output_dir
-            filename = os.path.basename(filename or '')
-            file = os.path.join(output_dir, filename)
-
             if not os.path.isfile(file):
                 return web.Response(status=404)
 
-            # Build a cache path based on file + params + workflow hash
-            temp_dir = folder_paths.get_temp_directory()
-            cache_dir = os.path.join(temp_dir, 'preview_cache')
-            os.makedirs(cache_dir, exist_ok=True)
+            cache_path = self._compute_preview_cache_path(file, params)
+            if cache_path and os.path.exists(cache_path):
+                return web.FileResponse(cache_path, headers={"Content-Disposition": f"filename=\"{params['filename']}\""})
 
-            workflow_json = None
-            if pid:
-                # Prefer workflow from history if available, else from queue
-                # Try job_history first
-                try:
-                    # Direct DB access to last history for pid
-                    with self.db._get_conn() as conn:
-                        cur = conn.execute('SELECT workflow FROM job_history WHERE prompt_id = ? ORDER BY id DESC LIMIT 1', (pid,))
-                        row = cur.fetchone()
-                        if row and row['workflow']:
-                            workflow_json = row['workflow']
-                except Exception:
-                    workflow_json = None
-                if workflow_json is None:
-                    job = self.db.get_job(pid)
-                    if job:
-                        workflow_json = job.get('workflow')
-
-            # Include workflow_json in cache key so regenerated when workflow changes
-            wf_hash = hashlib.sha256((workflow_json or '').encode('utf-8')).hexdigest()[:16]
-            stat = os.stat(file)
-            cache_key = f"{os.path.abspath(file)}|{stat.st_mtime}|{stat.st_size}|{image_format}|{quality}|{wf_hash}"
-            cache_name = hashlib.sha256(cache_key.encode('utf-8')).hexdigest() + f'.{image_format}'
-            cache_path = os.path.join(cache_dir, cache_name)
-
-            if os.path.exists(cache_path):
-                return web.FileResponse(cache_path, headers={"Content-Disposition": f"filename=\"{filename}\""})
-
-            with Image.open(file) as img:
-                save_kwargs: Dict[str, Any] = {"format": image_format}
-                if image_format in ['webp', 'jpeg']:
-                    save_kwargs['quality'] = quality
-
-                # Embed metadata if WEBP or PNG
-                if image_format == 'webp':
-                    try:
-                        exif = img.getexif()
-                        # Copy existing PNG text into WEBP EXIF
-                        if hasattr(img, 'text'):
-                            for k in img.text:
-                                val = img.text[k]
-                                # Preserve both prompt and other keys
-                                if k == 'prompt':
-                                    exif[0x0110] = "prompt:{}".format(val)
-                                else:
-                                    tag = 0x010F
-                                    try:
-                                        exif[tag] = f"{k}:{val}"
-                                    except Exception:
-                                        pass
-                        # Also embed provided workflow explicitly if given
-                        if workflow_json:
-                            try:
-                                exif[0x010E] = "workflow:{}".format(workflow_json)  # 0x010E = ImageDescription
-                            except Exception:
-                                pass
-                        save_kwargs['exif'] = exif
-                    except Exception:
-                        pass
-                elif image_format == 'png':
-                    try:
-                        pnginfo = PngInfo()
-                        if hasattr(img, 'text'):
-                            for k in img.text:
-                                pnginfo.add_text(k, img.text[k])
-                        if workflow_json:
-                            pnginfo.add_text('workflow', workflow_json)
-                        save_kwargs['pnginfo'] = pnginfo
-                    except Exception:
-                        pass
-
-                img.save(cache_path, **save_kwargs)
-
-            return web.FileResponse(cache_path, headers={"Content-Disposition": f"filename=\"{filename}\""})
+            # Render and cache
+            cache_path = self._render_and_cache_preview(file, params, cache_path)
+            return web.FileResponse(cache_path, headers={"Content-Disposition": f"filename=\"{params['filename']}\""})
         except Exception:
             return web.Response(status=500)
+
+    def _parse_preview_params(self, request: web.Request) -> Dict[str, Any]:
+        preview_q = request.rel_url.query.get('preview', 'webp;50')
+        preview_info = preview_q.split(';')
+        image_format = preview_info[0] if preview_info else 'webp'
+        if image_format not in ['webp', 'jpeg', 'png']:
+            image_format = 'webp'
+        quality = 90
+        if len(preview_info) > 1 and preview_info[-1].isdigit():
+            quality = int(preview_info[-1])
+
+        pid = request.rel_url.query.get('pid')
+        return {
+            'filename': request.rel_url.query.get('filename'),
+            'subfolder': request.rel_url.query.get('subfolder', ''),
+            'type': request.rel_url.query.get('type', 'output'),
+            'pid': pid,
+            'image_format': image_format,
+            'quality': quality,
+            'workflow_json': self._lookup_workflow_json(pid) if pid else None,
+        }
+
+    def _lookup_workflow_json(self, pid: Optional[str]) -> Optional[str]:
+        if not pid:
+            return None
+        try:
+            with self.db._get_conn() as conn:
+                cur = conn.execute('SELECT workflow FROM job_history WHERE prompt_id = ? ORDER BY id DESC LIMIT 1', (pid,))
+                row = cur.fetchone()
+                if row and row['workflow']:
+                    return row['workflow']
+        except Exception:
+            pass
+        job = self.db.get_job(pid)
+        if job:
+            return job.get('workflow')
+        return None
+
+    def _resolve_preview_filepath(self, params: Dict[str, Any]) -> Optional[str]:
+        base_dir = folder_paths.get_directory_by_type(params.get('type') or 'output')
+        if base_dir is None:
+            return None
+        output_dir = base_dir
+        subfolder = params.get('subfolder') or ''
+        if subfolder:
+            full_output_dir = os.path.join(base_dir, subfolder)
+            if os.path.commonpath((os.path.abspath(full_output_dir), base_dir)) != base_dir:
+                return None
+            output_dir = full_output_dir
+        filename = os.path.basename(params.get('filename') or '')
+        return os.path.join(output_dir, filename)
+
+    def _compute_preview_cache_path(self, file: str, params: Dict[str, Any]) -> Optional[str]:
+        temp_dir = folder_paths.get_temp_directory()
+        cache_dir = os.path.join(temp_dir, 'preview_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        wf_hash = hashlib.sha256(((params.get('workflow_json') or '')).encode('utf-8')).hexdigest()[:16]
+        stat = os.stat(file)
+        cache_key = f"{os.path.abspath(file)}|{stat.st_mtime}|{stat.st_size}|{params['image_format']}|{params['quality']}|{wf_hash}"
+        cache_name = hashlib.sha256(cache_key.encode('utf-8')).hexdigest() + f'.{params["image_format"]}'
+        return os.path.join(cache_dir, cache_name)
+
+    def _render_and_cache_preview(self, file: str, params: Dict[str, Any], cache_path: Optional[str]) -> str:
+        with Image.open(file) as img:
+            save_kwargs: Dict[str, Any] = {"format": params['image_format']}
+            if params['image_format'] in ['webp', 'jpeg']:
+                save_kwargs['quality'] = params['quality']
+
+            # Embed metadata
+            workflow_json = params.get('workflow_json')
+            if params['image_format'] == 'webp':
+                self._embed_webp_metadata(img, save_kwargs, workflow_json)
+            elif params['image_format'] == 'png':
+                self._embed_png_metadata(img, save_kwargs, workflow_json)
+
+            img.save(cache_path, **save_kwargs)
+        return cache_path
+
+    def _embed_webp_metadata(self, img: Image.Image, save_kwargs: Dict[str, Any], workflow_json: Optional[str]) -> None:
+        try:
+            exif = img.getexif()
+            if hasattr(img, 'text'):
+                for k in img.text:
+                    val = img.text[k]
+                    if k == 'prompt':
+                        exif[0x0110] = "prompt:{}".format(val)
+                    else:
+                        tag = 0x010F
+                        try:
+                            exif[tag] = f"{k}:{val}"
+                        except Exception:
+                            pass
+            if workflow_json:
+                try:
+                    exif[0x010E] = "workflow:{}".format(workflow_json)
+                except Exception:
+                    pass
+            save_kwargs['exif'] = exif
+        except Exception:
+            pass
+
+    def _embed_png_metadata(self, img: Image.Image, save_kwargs: Dict[str, Any], workflow_json: Optional[str]) -> None:
+        try:
+            pnginfo = PngInfo()
+            if hasattr(img, 'text'):
+                for k in img.text:
+                    pnginfo.add_text(k, img.text[k])
+            if workflow_json:
+                pnginfo.add_text('workflow', workflow_json)
+            save_kwargs['pnginfo'] = pnginfo
+        except Exception:
+            pass
 
 queue_manager = PersistentQueueManager()
