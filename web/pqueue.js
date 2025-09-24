@@ -7,6 +7,14 @@
     const API = {
         getQueue: () => fetch("/api/pqueue").then((r) => r.json()),
         getHistory: (limit = 50) => fetch(`/api/pqueue/history?limit=${limit}`).then((r) => r.json()),
+        getHistoryPaginated: (params = {}) => {
+            const url = new URL("/api/pqueue/history", window.location.origin);
+            Object.entries(params).forEach(([k, v]) => {
+                if (v === undefined || v === null || v === "") return;
+                url.searchParams.set(k, String(v));
+            });
+            return fetch(url.href).then((r) => r.json());
+        },
         pause: () => fetch("/api/pqueue/pause", { method: "POST" }),
         resume: () => fetch("/api/pqueue/resume", { method: "POST" }),
         reorder: (order) =>
@@ -134,6 +142,13 @@
         selectedPending: new Set(),
         filters: {
             pending: "",
+        },
+        historyIds: new Set(),
+        historyPaging: {
+            isLoading: false,
+            hasMore: true,
+            nextCursor: null,
+            params: { sort_by: "id", sort_dir: "desc", limit: 60 },
         },
         metrics: {
             runningCount: 0,
@@ -687,11 +702,21 @@
             } else {
                 state.history.forEach((row) => grid.appendChild(UI.historyCard(row)));
             }
+            const sentinel = UI.historySentinel();
+            state.dom.historySentinel = sentinel;
+            grid.appendChild(sentinel);
             return UI.card("Recent history", {
                 icon: "ti ti-clock-bolt",
                 subtitle: state.metrics.historyCount ? `${state.metrics.historyCount} entries` : null,
                 content: grid,
             });
+        },
+
+        historySentinel() {
+            const wrap = UI.el("div", { class: "pqueue-history-sentinel" });
+            const spinner = UI.icon("ti ti-loader-2", { size: "md", spin: true });
+            wrap.appendChild(spinner);
+            return wrap;
         },
 
         historyCard(row) {
@@ -797,6 +822,38 @@
                 const bar = state.dom.root.querySelector(`.pqueue-item[data-id="${pid}"] .pqueue-progress-bar`);
                 if (bar) bar.style.width = `${(Number(frac) * 100).toFixed(1)}%`;
             });
+        },
+
+        ensureHistoryObserver() {
+            try {
+                if (!('IntersectionObserver' in window)) return;
+                const grid = state.dom.historyGrid;
+                const sentinel = state.dom.historySentinel;
+                if (!grid || !sentinel) return;
+
+                if (state.historyObserver) {
+                    state.historyObserver.disconnect();
+                    state.historyObserver = null;
+                }
+
+                // Initialize cursor from currently loaded list if not set
+                if (!state.historyPaging?.nextCursor && state.history?.length) {
+                    const last = state.history[state.history.length - 1];
+                    state.historyPaging.nextCursor = { id: last?.id, value: last?.id };
+                    state.historyPaging.hasMore = true;
+                }
+
+                const obs = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (!entry.isIntersecting) return;
+                        Events.loadMoreHistory();
+                    });
+                }, { root: null, rootMargin: '600px 0px', threshold: 0 });
+                obs.observe(sentinel);
+                state.historyObserver = obs;
+            } catch (err) {
+                /* noop */
+            }
         },
 
         refreshFilter() {
@@ -1167,6 +1224,7 @@
                 table.addEventListener("click", Events.handleTableClick);
                 table.addEventListener("keydown", Events.handleTableKey);
             }
+            UI.ensureHistoryObserver();
         },
 
         async togglePause() {
@@ -1202,6 +1260,10 @@
 
         manualRefresh() {
             if (state.isRefreshing) return;
+            // Reset history paging on manual refresh
+            state.history = [];
+            state.historyIds = new Set();
+            state.historyPaging = { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: "id", sort_dir: "desc", limit: 60 } };
             refresh();
         },
 
@@ -1342,6 +1404,43 @@
             }
         },
 
+        async loadMoreHistory() {
+            try {
+                const paging = state.historyPaging;
+                if (!paging || paging.isLoading || !paging.hasMore) return;
+                paging.isLoading = true;
+
+                const params = { ...paging.params };
+                if (paging.nextCursor?.id != null) params.cursor_id = paging.nextCursor.id;
+                if (paging.nextCursor?.value != null) params.cursor_value = paging.nextCursor.value;
+
+                const result = await API.getHistoryPaginated(params);
+                const list = Array.isArray(result?.history) ? result.history : [];
+                const grid = state.dom.historyGrid;
+                const sentinel = state.dom.historySentinel;
+                if (grid && sentinel && list.length) {
+                    const frag = document.createDocumentFragment();
+                    for (const row of list) {
+                        const id = row?.id;
+                        if (id == null || state.historyIds.has(id)) continue;
+                        state.historyIds.add(id);
+                        frag.appendChild(UI.historyCard(row));
+                    }
+                    grid.insertBefore(frag, sentinel);
+                }
+                if (list.length) state.history.push(...list);
+                paging.nextCursor = result?.next_cursor || null;
+                paging.hasMore = !!result?.has_more;
+
+                // Hide sentinel when no more
+                if (!paging.hasMore && sentinel) sentinel.style.display = "none";
+            } catch (err) {
+                /* ignore load errors to avoid UI jank */
+            } finally {
+                if (state.historyPaging) state.historyPaging.isLoading = false;
+            }
+        },
+
         async deleteSelected() {
             if (!state.selectedPending.size) return;
             if (!window.confirm(`Delete ${state.selectedPending.size} selected prompt${state.selectedPending.size === 1 ? "" : "s"}?`)) return;
@@ -1413,6 +1512,19 @@
             });
 
             state.lastUpdated = new Date().toISOString();
+            // Seed history paging cursors and ids
+            try {
+                state.historyIds = new Set();
+                state.history.forEach((row) => {
+                    if (row && row.id != null) state.historyIds.add(row.id);
+                });
+                const last = state.history[state.history.length - 1];
+                state.historyPaging = state.historyPaging || { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: "id", sort_dir: "desc", limit: 60 } };
+                state.historyPaging.nextCursor = last ? { id: last.id, value: last.id } : null;
+                state.historyPaging.hasMore = true;
+            } catch (err) {
+                /* noop */
+            }
         } catch (err) {
             console.error("pqueue: refresh failed", err);
             state.error = err?.message || "Failed to load persistent queue";
