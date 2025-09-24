@@ -86,7 +86,7 @@
                     return wrap;
                 })()
             ]);
-            const li = el('li', { class: 'pqueue-item' }, [
+            const li = el('li', { class: 'pqueue-item', 'data-id': pid }, [
                 leftCol,
                 el('div', { class: 'pqueue-actions' }, [])
             ]);
@@ -343,10 +343,62 @@
 
     // Listen to ComfyUI WS events to auto-refresh
     function setupSocketRefresh() {
-        // The frontend sends events to the page via a global event dispatch. As a minimal approach, poll occasionally
-        // and also refresh when the page receives focus.
-        window.addEventListener('focus', () => refresh());
-        setInterval(() => { refresh(); }, 1000);
+        const hooked = tryHookWebsocket();
+        if (!hooked) {
+            window.addEventListener('focus', () => refresh());
+            setInterval(() => { refresh(); }, 3000);
+        }
+    }
+
+    function tryHookWebsocket() {
+        try {
+            const api = (window.app && window.app.api && typeof window.app.api.addEventListener === 'function') ? window.app.api : null;
+            if (!api) return false;
+
+            const onProgressState = (ev) => {
+                try {
+                    const payload = ev && ev.detail ? ev.detail : ev;
+                    if (!payload || !payload.prompt_id || !payload.nodes) return;
+                    let totalMax = 0;
+                    let totalVal = 0;
+                    Object.values(payload.nodes).forEach((st) => {
+                        const mv = Math.max(1, Number((st && st.max) || 1));
+                        const vv = Math.max(0, Math.min(Number((st && st.value) || 0), mv));
+                        totalMax += mv;
+                        totalVal += vv;
+                    });
+                    const frac = totalMax > 0 ? Math.max(0, Math.min(1, totalVal / totalMax)) : 0;
+                    state.running_progress[payload.prompt_id] = frac;
+                    // Lightweight re-render: only update bars if present, otherwise full render
+                    if (state.container) {
+                        const bars = state.container.querySelectorAll('.pqueue-item[data-id] .pqueue-progress-bar');
+                        if (bars && bars.length) {
+                            Object.entries(state.running_progress).forEach(([pid, f]) => {
+                                const li = state.container.querySelector(`.pqueue-item[data-id="${pid}"] .pqueue-progress-bar`);
+                                if (li) li.style.width = `${(Number(f) * 100).toFixed(2)}%`;
+                            });
+                        } else {
+                            render();
+                        }
+                    }
+                } catch(e) { /* ignore */ }
+            };
+
+            const onQueueOrExecChange = () => { refresh(); };
+
+            api.addEventListener('progress_state', onProgressState);
+            // Legacy progress event (non-aggregated); ignore or do minimal update if needed
+            api.addEventListener('progress', (ev) => { /* no-op; prefer progress_state */ });
+            // Queue/lifecycle updates
+            api.addEventListener('status', onQueueOrExecChange);
+            api.addEventListener('executing', onQueueOrExecChange);
+            api.addEventListener('executed', onQueueOrExecChange);
+            api.addEventListener('execution_start', onQueueOrExecChange);
+            api.addEventListener('execution_success', onQueueOrExecChange);
+            api.addEventListener('execution_error', onQueueOrExecChange);
+            api.addEventListener('execution_interrupted', onQueueOrExecChange);
+            return true;
+        } catch(e) { return false; }
     }
 
     // Initialize extension
