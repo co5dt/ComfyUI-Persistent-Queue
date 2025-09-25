@@ -466,7 +466,7 @@
                 const onScroll = () => position();
                 document.addEventListener('pointerdown', onDocPointer, true);
                 window.addEventListener('resize', onResize);
-                window.addEventListener('scroll', onScroll, true);
+                window.addEventListener('scroll', onScroll, { capture: true, passive: true });
                 state.dom.filtersPopoverListeners = { onDocPointer, onResize, onScroll };
                 pop.addEventListener('pqueue-close', closeAnimated);
                 pop._closeAnimated = closeAnimated;
