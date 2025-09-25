@@ -616,6 +616,7 @@
             });
             state.dom.historyCard = card;
             state.dom.historySubtitle = card.querySelector('.pqueue-card__subtitle');
+            try { UI.ensureThumbObserver(); } catch (err) { /* noop */ }
             return card;
         },
 
@@ -685,6 +686,7 @@
                         state.historyIds = new Set(Array.from(grid.querySelectorAll('.pqueue-history-card')).map((n) => Number(n.getAttribute('data-id'))).filter((v) => v != null));
                     } catch (err) { /* noop */ }
                 });
+                try { UI.ensureThumbObserver(); } catch (err) { /* noop */ }
             } catch (err) { /* noop */ }
         },
 
@@ -839,6 +841,7 @@
                 state.historyPaging.nextCursor = paged?.next_cursor || state.historyPaging.nextCursor;
                 state.historyPaging.hasMore = !!paged?.has_more || state.historyPaging.hasMore;
                 if (!state.historyPaging.hasMore && sentinel) sentinel.style.display = 'none';
+                try { UI.ensureThumbObserver(); } catch (err) { /* noop */ }
             } catch (err) { /* noop */ }
         },
 
