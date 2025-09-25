@@ -35,7 +35,8 @@
 .pqueue-icon--lg{font-size:1.35rem}
 .pqueue-icon--spin{animation:pqueue-spin 1s linear infinite}
 @keyframes pqueue-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-.pqueue-sections{display:flex;flex-direction:column;gap:1rem;overflow:auto;padding-bottom:1rem;overflow-anchor:none;overflow-x:hidden}
+.pqueue-sections{display:flex;flex-direction:column;gap:1rem;overflow:auto;padding-bottom:5.5rem;overflow-anchor:none;overflow-x:hidden}
+.pqueue-toolbar-host{position:sticky;bottom:0;z-index:1000;margin-top:.5rem}
 .pqueue-card{background:#1a1a1a;backdrop-filter:blur(22px);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:1rem 1.15rem;display:flex;flex-direction:column;gap:.75rem;border:1px solid rgba(82,82,91,.22)}
 .pqueue-card__header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}
 .pqueue-card__title-wrap{display:flex;align-items:center;gap:.6rem;color:var(--heading-text,#f9fafb)}
