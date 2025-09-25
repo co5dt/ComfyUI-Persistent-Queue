@@ -2356,6 +2356,7 @@
                 await Events.syncLatestForAsc();
                 UI.updateHistorySubtitle();
                 UI.updateSortToggle();
+                try { UI.ensureHistoryObserver(); } catch (err) { /* noop */ }
                 if (typeof restore === 'function') requestAnimationFrame(restore);
             } catch (err) {
                 /* noop */
