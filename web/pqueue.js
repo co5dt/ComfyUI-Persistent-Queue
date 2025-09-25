@@ -931,12 +931,13 @@
 
                 const existingIds = new Set(Array.from(grid.querySelectorAll('.pqueue-history-card')).map((n) => n.getAttribute('data-id')));
                 const ordered = Array.isArray(state.history) ? state.history.slice() : [];
-                // Ensure the list is ordered as per current sort
+                // Ensure the list is ordered as per current sort (stable by [ms, id])
                 try {
                     ordered.sort((a, b) => {
-                        const ak = Date.parse(a?.completed_at || a?.created_at || 0) || (a?.id || 0);
-                        const bk = Date.parse(b?.completed_at || b?.created_at || 0) || (b?.id || 0);
-                        return dir === 'desc' ? (bk - ak) : (ak - bk);
+                        const [ams, aid] = UI.historyKeyParts(a);
+                        const [bms, bid] = UI.historyKeyParts(b);
+                        if (ams !== bms) return dir === 'desc' ? (bms - ams) : (ams - bms);
+                        return dir === 'desc' ? (bid - aid) : (aid - bid);
                     });
                 } catch (err) { /* noop */ }
 
@@ -962,7 +963,11 @@
                             const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
                             if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing.nextSibling || sentinel); inserted = true; break; }
                         }
-                        if (!inserted) grid.insertBefore(card, sentinel);
+                        // If this row is older than all existing, place it at the top (before the first card)
+                        if (!inserted) {
+                            const firstCard = existingCards[0] || grid.querySelector('.pqueue-history-card');
+                            grid.insertBefore(card, firstCard || sentinel);
+                        }
                     }
                     existingIds.add(id);
                 }
@@ -1905,9 +1910,10 @@
                 try {
                     const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
                     list = list.slice().sort((a, b) => {
-                        const ak = UI.historyKey(a);
-                        const bk = UI.historyKey(b);
-                        return dir === 'desc' ? (bk - ak) : (ak - bk);
+                        const [ams, aid] = UI.historyKeyParts(a);
+                        const [bms, bid] = UI.historyKeyParts(b);
+                        if (ams !== bms) return dir === 'desc' ? (bms - ams) : (ams - bms);
+                        return dir === 'desc' ? (bid - aid) : (aid - bid);
                     });
                 } catch (err) { /* noop */ }
                 if (!state.historyIds) state.historyIds = new Set();
@@ -2135,17 +2141,46 @@
                 const list = Array.isArray(result?.history) ? result.history : [];
                 const grid = state.dom.historyGrid;
                 const sentinel = state.dom.historySentinel;
+                const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
                 if (grid && sentinel && list.length) {
-                    const frag = document.createDocumentFragment();
                     for (const row of list) {
                         const id = row?.id;
                         if (id == null || state.historyIds.has(id)) continue;
                         state.historyIds.add(id);
-                        frag.appendChild(UI.historyCard(row));
+                        const card = UI.historyCard(row);
+                        const key = Number(card.getAttribute('data-key') || 0);
+                        const key2 = Number(card.getAttribute('data-key2') || 0);
+                        const existingCards = Array.from(grid.querySelectorAll('.pqueue-history-card'));
+                        let inserted = false;
+                        if (dir === 'desc') {
+                            for (const existing of existingCards) {
+                                const otherKey = Number(existing.getAttribute('data-key') || 0);
+                                const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
+                                if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing); inserted = true; break; }
+                            }
+                            if (!inserted) grid.insertBefore(card, sentinel);
+                        } else {
+                            for (let i = existingCards.length - 1; i >= 0; i--) {
+                                const existing = existingCards[i];
+                                const otherKey = Number(existing.getAttribute('data-key') || 0);
+                                const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
+                                if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing.nextSibling || sentinel); inserted = true; break; }
+                            }
+                            if (!inserted) {
+                                const firstCard = existingCards[0] || grid.querySelector('.pqueue-history-card');
+                                grid.insertBefore(card, firstCard || sentinel);
+                            }
+                        }
+                        // Maintain in-memory list similarly to merge logic for stability
+                        if (Array.isArray(state.history)) {
+                            if (dir === 'desc') state.history.push(row);
+                            else state.history.push(row);
+                        }
                     }
-                    grid.insertBefore(frag, sentinel);
+                } else if (list.length) {
+                    // Fallback if grid not ready
+                    if (Array.isArray(state.history)) state.history.push(...list);
                 }
-                if (list.length) state.history.push(...list);
                 if (typeof result?.total === 'number') state.historyTotal = result.total;
                 paging.nextCursor = result?.next_cursor || null;
                 paging.hasMore = !!result?.has_more;
