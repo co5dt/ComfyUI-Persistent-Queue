@@ -415,6 +415,38 @@
             if (!state.container) return;
             UI.ensureAssets();
 
+            // Preserve scroll position relative to the history card to avoid jank on refresh
+            const prevDom = state.dom;
+            let _prevScrollTop = 0;
+            let _prevAnchorOffset = null;
+            let _prevScroller = null;
+            const findScrollContainer = (node) => {
+                try {
+                    let el = node;
+                    while (el && el !== document.body && el !== document.documentElement) {
+                        const style = window.getComputedStyle(el);
+                        const oy = style.overflowY;
+                        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+                        el = el.parentElement;
+                    }
+                    return document.scrollingElement || document.documentElement || document.body;
+                } catch (err) {
+                    return document.scrollingElement || document.documentElement || document.body;
+                }
+            };
+            try {
+                _prevScroller = findScrollContainer(state.container);
+                if (_prevScroller) {
+                    _prevScrollTop = _prevScroller.scrollTop || 0;
+                    const prevCard = (prevDom && prevDom.historyCard) ? prevDom.historyCard : state.container.querySelector('.pqueue-card');
+                    if (prevCard) {
+                        const scRect = _prevScroller.getBoundingClientRect();
+                        const cardRect = prevCard.getBoundingClientRect();
+                        _prevAnchorOffset = cardRect.top - scRect.top;
+                    }
+                }
+            } catch (err) { /* noop */ }
+
             const dom = (state.dom = {});
             state.container.innerHTML = "";
 
@@ -430,6 +462,26 @@
             sections.appendChild(UI.renderHistory());
             root.appendChild(sections);
             state.container.appendChild(root);
+
+            // Expose scroller for other operations
+            dom.sections = sections;
+
+            // Restore scroll position relative to the history card to prevent layout shifts
+            requestAnimationFrame(() => {
+                try {
+                    const scroller = _prevScroller || findScrollContainer(state.container);
+                    if (!scroller) return;
+                    const newCard = (state.dom && state.dom.historyCard) ? state.dom.historyCard : state.container.querySelector('.pqueue-card');
+                    if (_prevAnchorOffset != null && newCard) {
+                        const scRect2 = scroller.getBoundingClientRect();
+                        const cardRect2 = newCard.getBoundingClientRect();
+                        const newOffset = cardRect2.top - scRect2.top;
+                        scroller.scrollTop = Math.max(0, _prevScrollTop + (newOffset - _prevAnchorOffset));
+                    } else {
+                        scroller.scrollTop = _prevScrollTop;
+                    }
+                } catch (err) { /* noop */ }
+            });
 
             Events.bind();
             UI.updateProgressBars();
@@ -1437,6 +1489,19 @@
                 table.addEventListener("keydown", Events.handleTableKey);
             }
             UI.ensureHistoryObserver();
+
+            // Short-lived render lock on pointer down/up inside our container to prevent re-renders during clicks
+            try {
+                const root = state.container;
+                if (root && !root._pqlockBound) {
+                    const lock = () => { state.renderLockUntil = Date.now() + 300; };
+                    const unlockSoon = () => { state.renderLockUntil = Date.now() + 100; };
+                    root.addEventListener('pointerdown', lock, true);
+                    root.addEventListener('pointerup', unlockSoon, true);
+                    root.addEventListener('click', unlockSoon, true);
+                    root._pqlockBound = true;
+                }
+            } catch (err) { /* noop */ }
         },
 
         async togglePause() {
@@ -1808,6 +1873,20 @@
 
                 // Reset and reload
                 const grid = state.dom.historyGrid;
+                const scroller = state.dom.sections || (state.container && state.container.querySelector('.pqueue-sections'));
+                let restore = null;
+                if (grid && scroller) {
+                    const rect = grid.getBoundingClientRect();
+                    const scRect = scroller.getBoundingClientRect();
+                    const beforeOffset = rect.top - scRect.top;
+                    const beforeHeight = rect.height;
+                    // Freeze height to avoid layout jump while we clear and load
+                    grid.style.minHeight = `${beforeHeight}px`;
+                    restore = () => {
+                        try { grid.style.minHeight = ''; } catch (err) {}
+                        try { scroller.scrollTop = Math.max(0, scroller.scrollTop + ((grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top) - beforeOffset)); } catch (err) {}
+                    };
+                }
                 const sentinel = state.dom.historySentinel;
                 if (grid) Array.from(grid.querySelectorAll('.pqueue-history-card')).forEach((n) => n.remove());
                 state.history = [];
@@ -1816,9 +1895,10 @@
                 state.historyPaging.nextCursor = null;
                 state.historyPaging.hasMore = true;
                 if (sentinel) sentinel.style.display = '';
-                Events.loadMoreHistory();
+                await Events.loadMoreHistory();
                 UI.updateHistorySubtitle();
                 UI.updateSortToggle();
+                if (typeof restore === 'function') requestAnimationFrame(restore);
             } catch (err) {
                 /* noop */
             }
@@ -1960,6 +2040,8 @@
     };
 
     async function refresh({ skipIfBusy } = {}) {
+        // Respect render lock to avoid re-rendering while user is interacting
+        if (Date.now() < (state.renderLockUntil || 0)) return;
         if (state.isRefreshing && skipIfBusy) return;
         state.isRefreshing = true;
         UI.updateToolbarStatus();
