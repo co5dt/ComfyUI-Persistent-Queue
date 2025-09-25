@@ -640,11 +640,13 @@
                     rows.push(UI.el("div", { class: "pqueue-item pqueue-item--running", "data-id": pid }, [meta, progress]));
                 });
             }
-            return UI.card("Currently running", {
+            const card = UI.card("Currently running", {
                 icon: "ti ti-activity-heartbeat",
                 subtitle: state.metrics.runningCount ? `${state.metrics.runningCount} active` : null,
                 content: rows,
             });
+            state.dom.runningCard = card;
+            return card;
         },
 
         renderPending() {
@@ -702,12 +704,14 @@
                 UI.el("div", { class: "pqueue-table__footer-right" }, [deleteSelected]),
             ]);
 
-            return UI.card("Queue", {
+            const card = UI.card("Queue", {
                 icon: "ti ti-stack-front",
                 subtitle: state.metrics.queueCount ? `${state.metrics.queueCount} pending` : null,
                 actions: [filter],
                 content: [wrapper, footer],
             });
+            state.dom.pendingCard = card;
+            return card;
         },
 
         pendingRow(item) {
