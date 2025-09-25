@@ -162,6 +162,9 @@
             historyCount: 0,
             successRate: null,
             avgDuration: null,
+            estimatedTotalDuration: null,
+            estimatedPendingDuration: null,
+            estimatedRunningDuration: null,
             failureCount: 0,
             lastFailure: null,
         },
@@ -377,9 +380,14 @@
             return box;
         },
 
-        metricTile({ icon, label, value, caption, variant }) {
+        metricTile({ icon, label, value, caption, variant, tooltip }) {
             const card = UI.el("article", { class: ["pqueue-metric", variant ? `pqueue-metric--${variant}` : null] });
-            const header = UI.el("div", { class: "pqueue-metric__header" }, [UI.icon(icon, { size: "md" }), UI.el("span", { class: "pqueue-metric__label", text: label })]);
+            const labelEl = UI.el("span", { class: "pqueue-metric__label", text: label });
+            const headerChildren = [UI.icon(icon, { size: "md" }), labelEl];
+            if (tooltip) {
+                card.setAttribute("title", tooltip);
+            }
+            const header = UI.el("div", { class: "pqueue-metric__header" }, headerChildren);
             card.appendChild(header);
             card.appendChild(UI.el("div", { class: "pqueue-metric__value", text: value }));
             if (caption) card.appendChild(UI.el("div", { class: "pqueue-metric__caption", text: caption }));
@@ -480,6 +488,17 @@
                     value: m.avgDuration ? Format.duration(m.avgDuration) : "—",
                     caption: "Calculated from history",
                     variant: "neutral",
+                }),
+                UI.metricTile({
+                    icon: "ti ti-hourglass-high",
+                    label: "Est. total duration",
+                    value: m.estimatedTotalDuration ? Format.duration(m.estimatedTotalDuration) : "—",
+                    caption: [
+                        m.estimatedRunningDuration ? `~${Format.duration(m.estimatedRunningDuration)} running` : null,
+                        m.estimatedPendingDuration ? `~${Format.duration(m.estimatedPendingDuration)} pending` : null,
+                    ].filter(Boolean).join(" • ") || (m.queueCount ? `${m.queueCount} pending item${m.queueCount === 1 ? "" : "s"}` : "No pending items"),
+                    variant: m.estimatedTotalDuration ? "neutral" : "neutral",
+                    tooltip: "Sum of per-workflow averages for running (remaining) and pending items. Per-workflow averages are computed from recent history; if unavailable, falls back to global average duration.",
                 }),
             ];
             const wrap = UI.el("div", { class: "pqueue-metrics" }, tiles);
@@ -2018,6 +2037,9 @@
             historyCount: state.history.length,
             successRate: null,
             avgDuration: null,
+            estimatedTotalDuration: null,
+            estimatedPendingDuration: null,
+            estimatedRunningDuration: null,
             failureCount: 0,
             lastFailure: null,
         };
@@ -2069,6 +2091,52 @@
             averages.set(key, avg);
         });
         state.durationByWorkflow = averages;
+
+        // Compute estimated durations for running and pending items based on per-workflow averages.
+        // Fallback to global avgDuration when a workflow has no specific average yet.
+        try {
+            const fallback = metrics.avgDuration || 0;
+            const getEstimateForItem = (item) => {
+                if (!Array.isArray(item)) return 0;
+                const pid = String(item[1] ?? "");
+                let key = state.workflowCache.get(pid);
+                if (!key) {
+                    const wf = item[2];
+                    if (wf !== undefined) {
+                        try {
+                            key = typeof wf === "string" ? wf : JSON.stringify(wf);
+                            if (key) state.workflowCache.set(pid, key);
+                        } catch (err) {
+                            key = null;
+                        }
+                    }
+                }
+                const perWf = (key && averages.has(key)) ? averages.get(key) : fallback;
+                return (Number.isFinite(perWf) && perWf > 0) ? perWf : 0;
+            };
+
+            // Pending: sum per-item averages
+            let pendingEstimate = 0;
+            for (const item of state.queue_pending) pendingEstimate += getEstimateForItem(item);
+
+            // Running: estimate remaining using (1 - progress) * per-item average
+            let runningEstimate = 0;
+            for (const item of state.queue_running) {
+                const perItem = getEstimateForItem(item);
+                const pid = String(item[1] ?? "");
+                const progress = Math.max(0, Math.min(1, Number(state.running_progress?.[pid]) || 0));
+                const remaining = perItem * (1 - progress);
+                if (Number.isFinite(remaining) && remaining > 0) runningEstimate += remaining;
+            }
+
+            const total = pendingEstimate + runningEstimate;
+            metrics.estimatedPendingDuration = pendingEstimate > 0 ? pendingEstimate : null;
+            metrics.estimatedRunningDuration = runningEstimate > 0 ? runningEstimate : null;
+            metrics.estimatedTotalDuration = total > 0 ? total : null;
+            state.metrics = metrics;
+        } catch (err) {
+            state.metrics = metrics;
+        }
     }
 
     function lookupWorkflow(promptId) {
