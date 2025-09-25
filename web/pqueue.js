@@ -667,11 +667,10 @@
         renderRunning() {
             const rows = [];
             if (!state.queue_running.length) {
-                rows.push(UI.emptyState({
-                    icon: "ti ti-player-play",
-                    title: "No running job",
-                    description: "Prompt will start running after the queue resumes",
-                }));
+                const placeholder = UI.el("div", { class: "pqueue-item pqueue-item--running", style: "display:flex;align-items:center;justify-content:center;text-align:center;" }, [
+                    UI.el("span", { class: "pqueue-muted", text: "no running job" })
+                ]);
+                rows.push(placeholder);
             } else {
                 state.queue_running.forEach((item, index) => {
                     const pid = item[1];
@@ -1028,10 +1027,18 @@
                     if (!card) return;
                     const body = card.querySelector('.pqueue-card__body');
                     if (!body) return;
+                    const beforeHeight = Math.max(0, body.offsetHeight || 0);
                     body.innerHTML = '';
                     if (!state.queue_running.length) {
-                        body.appendChild(UI.emptyState({ icon: 'ti ti-player-play', title: 'No running job', description: 'Prompt will start running after the queue resumes' }));
+                        // Preserve current height to avoid layout shift
+                        if (beforeHeight) body.style.minHeight = `${beforeHeight}px`;
+                        const placeholder = UI.el('div', { class: 'pqueue-item pqueue-item--running', style: 'display:flex;align-items:center;justify-content:center;text-align:center;' }, [
+                            UI.el('span', { class: 'pqueue-muted', text: 'no running job' })
+                        ]);
+                        body.appendChild(placeholder);
                     } else {
+                        // Allow height to adjust naturally when running again
+                        try { body.style.minHeight = ''; } catch (err) { /* noop */ }
                         state.queue_running.forEach((item, index) => {
                             const pid = item[1];
                             const fraction = Math.max(0, Math.min(1, Number(state.running_progress?.[pid]) || 0));
