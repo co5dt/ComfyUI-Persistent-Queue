@@ -554,6 +554,7 @@
                 variant: state.paused ? "success" : "warning",
                 subtle: true,
             });
+            pauseBtn.addEventListener('click', Events.togglePause);
             const clearBtn = UI.button({
                 id: "pqueue-clear",
                 icon: "ti ti-player-stop",
@@ -562,6 +563,7 @@
                 variant: "danger",
                 subtle: true,
             });
+            clearBtn.addEventListener('click', Events.clearPending);
 
             // Minimal toolbar: only pause/resume and clear
             return UI.el("div", { class: "pqueue-toolbar" }, [
