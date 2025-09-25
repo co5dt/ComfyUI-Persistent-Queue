@@ -352,7 +352,11 @@ class QueueDatabase:
             where_clauses.append("(prompt_id LIKE ? OR (workflow IS NOT NULL AND workflow LIKE ?) OR (outputs IS NOT NULL AND outputs LIKE ?))")
             params.extend([like, like, like])
 
-        # Keyset pagination cursor
+        # Preserve filter-only clauses/params for total count BEFORE adding keyset cursor params
+        filter_only_clauses = list(where_clauses)
+        filter_only_params = list(params)
+
+        # Keyset pagination cursor (append AFTER capturing filter_only_params)
         keyset_clause = None
         if sort_by == "id":
             if cursor_id is not None:
@@ -364,10 +368,6 @@ class QueueDatabase:
                 cmp = ">" if sort_dir == "asc" else "<"
                 keyset_clause = f"(({sort_by} {cmp} ?) OR ({sort_by} = ? AND id {cmp} ?))"
                 params.extend([cursor_value, cursor_value, int(cursor_id)])
-
-        # Preserve filter-only clauses/params for total count
-        filter_only_clauses = list(where_clauses)
-        filter_only_params = list(params)
 
         if keyset_clause:
             where_clauses.append(keyset_clause)
