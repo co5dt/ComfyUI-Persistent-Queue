@@ -854,12 +854,79 @@
                 UI.updateMetrics();
                 UI.updateRunningSection();
                 UI.updatePendingSection();
-                if (paged && paged.history) UI.mergeHistoryFromRefresh(paged);
+                UI.reconcileHistoryFromState();
                 UI.updateHistorySubtitle();
             } catch (err) {
                 /* fallback: if anything fails, do a light rerender of sections only */
                 try { UI.ensureHistoryObserver(); } catch (e) { /* noop */ }
             }
+        },
+
+        // Diff DOM against state.history (first page) and insert any missing cards in correct order
+        reconcileHistoryFromState() {
+            try {
+                const grid = state.dom.historyGrid;
+                const sentinel = state.dom.historySentinel;
+                if (!grid || !sentinel) return;
+                const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
+
+                // Anchor to keep viewport stable
+                const scroller = UI.getScrollContainer();
+                const anchor = grid.querySelector('.pqueue-history-card');
+                let anchorBefore = null;
+                if (scroller && anchor) {
+                    const scRect = scroller.getBoundingClientRect();
+                    const aRect = anchor.getBoundingClientRect();
+                    anchorBefore = aRect.top - scRect.top;
+                }
+
+                const existingIds = new Set(Array.from(grid.querySelectorAll('.pqueue-history-card')).map((n) => n.getAttribute('data-id')));
+                const ordered = Array.isArray(state.history) ? state.history.slice() : [];
+                // Ensure the list is ordered as per current sort
+                try {
+                    ordered.sort((a, b) => {
+                        const ak = Date.parse(a?.completed_at || a?.created_at || 0) || (a?.id || 0);
+                        const bk = Date.parse(b?.completed_at || b?.created_at || 0) || (b?.id || 0);
+                        return dir === 'desc' ? (bk - ak) : (ak - bk);
+                    });
+                } catch (err) { /* noop */ }
+
+                for (const row of ordered) {
+                    const id = row?.id != null ? String(row.id) : null;
+                    if (!id || existingIds.has(id)) continue;
+                    const card = UI.historyCard(row);
+                    const key = Number(card.getAttribute('data-key') || 0);
+                    const existingCards = Array.from(grid.querySelectorAll('.pqueue-history-card'));
+                    let inserted = false;
+                    for (const existing of existingCards) {
+                        const otherKey = Number(existing.getAttribute('data-key') || 0);
+                        if (dir === 'desc') {
+                            if (key >= otherKey) { grid.insertBefore(card, existing); inserted = true; break; }
+                        } else {
+                            if (key <= otherKey) { grid.insertBefore(card, existing); inserted = true; break; }
+                        }
+                    }
+                    if (!inserted) grid.insertBefore(card, sentinel);
+                    existingIds.add(id);
+                }
+
+                // Restore anchor
+                if (anchorBefore != null && scroller && anchor) {
+                    requestAnimationFrame(() => {
+                        try {
+                            const scRect2 = scroller.getBoundingClientRect();
+                            const aRect2 = anchor.getBoundingClientRect();
+                            const delta = (aRect2.top - scRect2.top) - anchorBefore;
+                            if (delta) scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+                        } catch (err) { /* noop */ }
+                    });
+                }
+
+                // Rebuild historyIds from DOM
+                try {
+                    state.historyIds = new Set(Array.from(grid.querySelectorAll('.pqueue-history-card')).map((n) => Number(n.getAttribute('data-id'))).filter((v) => v != null));
+                } catch (err) { /* noop */ }
+            } catch (err) { /* noop */ }
         },
 
         updateToolbarControls() {
