@@ -412,6 +412,60 @@
             }
         },
 
+        // Find and cache the real scroll container (ComfyUI sidebar)
+        getScrollContainer() {
+            try {
+                if (state?.dom?.scrollContainer && document.body.contains(state.dom.scrollContainer)) return state.dom.scrollContainer;
+                const explicit = document.querySelector('.sidebar-content-container');
+                if (explicit) { state.dom.scrollContainer = explicit; return explicit; }
+                let el = state.container;
+                while (el && el !== document.body && el !== document.documentElement) {
+                    try {
+                        const style = window.getComputedStyle(el);
+                        const oy = style.overflowY;
+                        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) {
+                            state.dom.scrollContainer = el;
+                            return el;
+                        }
+                        el = el.parentElement;
+                    } catch (err) { break; }
+                }
+                const fallback = document.scrollingElement || document.documentElement || document.body;
+                state.dom.scrollContainer = fallback;
+                return fallback;
+            } catch (err) {
+                return document.scrollingElement || document.documentElement || document.body;
+            }
+        },
+
+        // Keep an anchor element visually stationary while mutating DOM
+        withStableAnchor(mutator) {
+            try {
+                const scroller = UI.getScrollContainer();
+                const anchor = state.dom.historyCard || state.dom.root;
+                let before = null;
+                if (scroller && anchor) {
+                    const scRect = scroller.getBoundingClientRect();
+                    const aRect = anchor.getBoundingClientRect();
+                    before = aRect.top - scRect.top;
+                }
+                mutator && mutator();
+                requestAnimationFrame(() => {
+                    try {
+                        if (before == null) return;
+                        const scRect2 = scroller.getBoundingClientRect();
+                        const aRect2 = anchor.getBoundingClientRect();
+                        const after = aRect2.top - scRect2.top;
+                        const delta = after - before;
+                        if (delta !== 0) scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+                    } catch (err) { /* noop */ }
+                });
+            } catch (err) {
+                // Fallback: just run the mutator
+                try { mutator && mutator(); } catch (e) { /* noop */ }
+            }
+        },
+
         render() {
             if (!state.container) return;
             UI.ensureAssets();
