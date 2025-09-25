@@ -12,13 +12,6 @@
         if (!m) return null;
         const tiles = [
             UI.metricTile({
-                icon: "ti ti-stack-2",
-                label: "In queue",
-                value: String(m.queueCount),
-                caption: `${m.runningCount} running • ${m.persistedCount} persisted`,
-                variant: m.queueCount ? "primary" : "neutral",
-            }),
-            UI.metricTile({
                 icon: "ti ti-chart-pie",
                 label: "Success rate",
                 value: m.successRate != null ? `${Math.round(m.successRate * 100)}%` : "—",
