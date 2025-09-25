@@ -1667,6 +1667,9 @@
 
                 // Hide sentinel when no more
                 if (!paging.hasMore && sentinel) sentinel.style.display = "none";
+                // Recompute metrics and update the counter subtitle after page load
+                try { deriveMetrics(); } catch (err) { /* noop */ }
+                UI.updateHistorySubtitle();
             } catch (err) {
                 /* ignore load errors to avoid UI jank */
             } finally {
@@ -1814,6 +1817,7 @@
                 state.historyPaging.hasMore = true;
                 if (sentinel) sentinel.style.display = '';
                 Events.loadMoreHistory();
+                UI.updateHistorySubtitle();
                 UI.updateSortToggle();
             } catch (err) {
                 /* noop */
