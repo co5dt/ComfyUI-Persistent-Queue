@@ -32,10 +32,6 @@ This extension does not add new nodes to your graph. It integrates with ComfyUI�
 
 That’s it. No extra dependencies are typically required on current ComfyUI versions. If you’re on an older environment and see errors about Pillow or aiohttp, install them:
 
-```bash
-pip install pillow aiohttp
-```
-
 ---
 
 ### Uninstall
