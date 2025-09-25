@@ -2289,9 +2289,9 @@
         },
     };
 
-    async function refresh({ skipIfBusy } = {}) {
+    async function refresh({ skipIfBusy, force } = {}) {
         // Respect render lock to avoid re-rendering while user is interacting
-        if (Date.now() < (state.renderLockUntil || 0)) return;
+        if (!force && Date.now() < (state.renderLockUntil || 0)) return;
         if (state.isRefreshing && skipIfBusy) return;
         state.isRefreshing = true;
         UI.updateToolbarStatus();
@@ -2356,12 +2356,16 @@
             } catch (err) {
                 /* noop */
             }
+            // After state updated, attempt incremental UI update to prevent flicker
+            try { UI.updateAfterRefresh(paged); } catch (err) { /* noop */ }
         } catch (err) {
             console.error("pqueue: refresh failed", err);
             state.error = err?.message || "Failed to load persistent queue";
         } finally {
             state.isRefreshing = false;
-            UI.render();
+            // As a fallback, do a full render only if DOM not initialized
+            if (!state.dom || !state.dom.root) UI.render();
+            UI.updateToolbarStatus();
         }
     }
 
