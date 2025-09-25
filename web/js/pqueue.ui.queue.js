@@ -44,7 +44,67 @@
                 tooltip: "Sum of per-workflow averages for running (remaining) and pending items. Per-workflow averages are computed from recent history; if unavailable, falls back to global average duration.",
             }),
         ];
-        const wrap = UI.el("div", { class: "pqueue-metrics" }, tiles);
+        const bodyInner = UI.el("div", { class: "pqueue-metrics" }, tiles);
+        const body = UI.el("div", { class: "pqueue-card__body" }, [bodyInner]);
+        try {
+            body.style.overflow = 'hidden';
+            body.style.transition = 'height 120ms ease, opacity 120ms ease';
+        } catch (err) { /* noop */ }
+        const cardHeader = [];
+        cardHeader.push(UI.el("h3", { class: "pqueue-card__title", text: "Queue Metrics" }));
+        const toggle = UI.button({ icon: state.uiMetricsCollapsed ? "ti ti-chevron-down" : "ti ti-chevron-up", variant: "ghost", subtle: true, title: state.uiMetricsCollapsed ? "Expand" : "Collapse" });
+        toggle.addEventListener("click", () => {
+            try {
+                const isCollapsed = !!state.uiMetricsCollapsed;
+                const iconName = !isCollapsed ? 'ti ti-chevron-down' : 'ti ti-chevron-up';
+                const setIcon = (name) => {
+                    try { toggle.innerHTML = ''; toggle.appendChild(UI.icon(name)); } catch (err) { /* noop */ }
+                };
+                if (!isCollapsed) {
+                    // collapse
+                    const start = body.scrollHeight;
+                    body.style.height = `${start}px`;
+                    body.style.opacity = '1';
+                    requestAnimationFrame(() => {
+                        body.style.height = '0px';
+                        body.style.opacity = '0';
+                    });
+                    const onEnd = () => {
+                        body.removeEventListener('transitionend', onEnd);
+                        setIcon('ti ti-chevron-down');
+                        state.uiMetricsCollapsed = true;
+                    };
+                    body.addEventListener('transitionend', onEnd);
+                } else {
+                    // expand
+                    const target = bodyInner.scrollHeight;
+                    body.style.height = '0px';
+                    body.style.opacity = '0';
+                    requestAnimationFrame(() => {
+                        const h = bodyInner.scrollHeight || target;
+                        body.style.height = `${h}px`;
+                        body.style.opacity = '1';
+                    });
+                    const onEnd = () => {
+                        body.removeEventListener('transitionend', onEnd);
+                        try { body.style.height = ''; } catch (err) { /* noop */ }
+                        setIcon('ti ti-chevron-up');
+                        state.uiMetricsCollapsed = false;
+                    };
+                    body.addEventListener('transitionend', onEnd);
+                }
+            } catch (err) { /* noop */ }
+        });
+        const actions = UI.el("div", { class: "pqueue-card__actions" }, [toggle]);
+        const header = UI.el("header", { class: "pqueue-card__header" }, [UI.el("div", { class: "pqueue-card__title-wrap" }, cardHeader), actions]);
+        const wrap = UI.el("section", { class: ["pqueue-card"] }, [header]);
+        try { wrap.setAttribute('data-collapsed', state.uiMetricsCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
+        if (state.uiMetricsCollapsed) {
+            try { body.style.height = '0px'; body.style.opacity = '0'; } catch (err) { /* noop */ }
+        } else {
+            try { body.style.height = ''; body.style.opacity = '1'; } catch (err) { /* noop */ }
+        }
+        wrap.appendChild(body);
         state.dom.metrics = wrap;
         return wrap;
     };
@@ -252,9 +312,9 @@
 
     UI.updateMetrics = function updateMetrics() {
         try {
+            const old = state.dom.metrics;
             const newMetrics = UI.renderMetrics();
             if (!newMetrics) return;
-            const old = state.dom.metrics;
             if (old && old.parentNode) {
                 old.parentNode.replaceChild(newMetrics, old);
                 state.dom.metrics = newMetrics;

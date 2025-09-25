@@ -53,6 +53,7 @@
         statusTimer: null,
         container: null,
         dom: {},
+        uiMetricsCollapsed: false,
     };
 
     PQ.state = state;
