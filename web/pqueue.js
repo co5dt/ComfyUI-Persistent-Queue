@@ -1864,7 +1864,7 @@
             }
         },
 
-        setHistorySort(dir) {
+        async setHistorySort(dir) {
             try {
                 if (!state.historyPaging) state.historyPaging = { isLoading: false, hasMore: true, nextCursor: null, params: { sort_by: 'id', sort_dir: 'desc', limit: 60 } };
                 const params = state.historyPaging.params || {};
