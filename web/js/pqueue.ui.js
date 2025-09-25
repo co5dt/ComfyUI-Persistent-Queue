@@ -985,7 +985,7 @@
                 const url = new URL(`/api/pqueue/history/thumb/${row.id}`, window.location.origin);
                 url.searchParams.set("_", String(Date.now()));
                 const wrap = UI.el("div", { class: "pqueue-thumb-wrap" });
-                const img = UI.el("img", { class: "pqueue-thumb", src: url.href, title: `history-${row.id}`, loading: "lazy" });
+                const img = UI.el("img", { class: "pqueue-thumb", src: url.href, title: `history-${row.id}`, loading: "lazy", decoding: "async", fetchpriority: "low" });
                 attachFallback(wrap, img, galleryImages);
                 wrap.appendChild(img);
                 const count = UI.countImages(row);
@@ -1000,7 +1000,7 @@
                     const first = images[0];
                     const url = UI.buildPreviewUrl(first, row.prompt_id);
                     const wrap = UI.el("div", { class: "pqueue-thumb-wrap" });
-                    const img = UI.el("img", { class: "pqueue-thumb", src: url.href, title: first.filename, loading: "lazy" });
+                    const img = UI.el("img", { class: "pqueue-thumb", src: url.href, title: first.filename, loading: "lazy", decoding: "async", fetchpriority: "low" });
                     attachFallback(wrap, img, images);
                     wrap.appendChild(img);
                     if (images.length > 1) wrap.appendChild(UI.el("div", { class: "pqueue-thumb-badge", text: `${images.length}` }));

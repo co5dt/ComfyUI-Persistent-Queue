@@ -101,7 +101,7 @@
 .pqueue-table__footer-left{display:flex;gap:1rem;color:var(--subtle-text,#94a3b8);font-size:.76rem}
 .pqueue-table__footer-right{display:flex;gap:.45rem}
 .pqueue-history{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.85rem}
-.pqueue-history-card{display:flex;flex-direction:column;gap:.55rem;padding:.75rem;background:#1a1a1a;border-radius:12px;border:1px solid rgba(82,82,91,.22);transition:box-shadow .15s ease,transform .15s ease}
+.pqueue-history-card{display:flex;flex-direction:column;gap:.55rem;padding:.75rem;background:#1a1a1a;border-radius:12px;border:1px solid rgba(82,82,91,.22);transition:box-shadow .15s ease,transform .15s ease;contain-intrinsic-size:200px 260px;content-visibility:auto}
 .pqueue-history-card:hover{box-shadow:0 8px 18px rgba(15,23,42,.26);transform:translateY(-1px)}
 .pqueue-history-card__header{display:flex;align-items:center;justify-content:space-between;font-size:.74rem;color:var(--subtle-text,#94a3b8)}
 .pqueue-history-card__meta{display:flex;align-items:center;gap:.5rem}
