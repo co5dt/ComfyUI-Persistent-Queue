@@ -22,7 +22,16 @@
             `${base}/pqueue.format.js`,
             `${base}/pqueue.util.js`,
             `${base}/pqueue.events.js`,
-            `${base}/pqueue.ui.js`,
+            // UI modules split from pqueue.ui.js (order matters: core first)
+            `${base}/pqueue.ui.core.js`,
+            `${base}/pqueue.ui.toolbar.js`,
+            `${base}/pqueue.ui.queue.js`,
+            `${base}/pqueue.ui.history.js`,
+            `${base}/pqueue.ui.gallery.js`,
+            `${base}/pqueue.ui.workflow.js`,
+            `${base}/pqueue.ui.fallback.js`,
+            `${base}/pqueue.ui.render.js`,
+            // runtime last
             `${base}/pqueue.runtime.js`,
         ];
         for (const f of files) await loadScript(f);
