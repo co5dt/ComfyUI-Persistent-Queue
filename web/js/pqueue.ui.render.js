@@ -46,8 +46,7 @@
 
         const root = UI.el("div", { class: "pqueue-root" });
         dom.root = root;
-
-        root.appendChild(UI.renderToolbar());
+        
         const sections = UI.el("div", { class: "pqueue-sections" });
         const metrics = UI.renderMetrics();
         if (metrics) sections.appendChild(metrics);
@@ -56,6 +55,11 @@
         sections.appendChild(UI.renderHistory());
         root.appendChild(sections);
         state.container.appendChild(root);
+
+        // Place toolbar outside of scrollable sections at the bottom
+        const toolbarHost = UI.el("div", { class: "pqueue-toolbar-host" });
+        toolbarHost.appendChild(UI.renderToolbar());
+        state.container.appendChild(toolbarHost);
 
         dom.sections = sections;
 
