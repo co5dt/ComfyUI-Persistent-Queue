@@ -1131,7 +1131,13 @@
         },
 
         historyCard(row) {
-            const card = UI.el("article", { class: "pqueue-history-card", title: Format.tooltip(row) });
+            const attrs = { class: "pqueue-history-card", title: Format.tooltip(row) };
+            if (row && row.id != null) attrs["data-id"] = String(row.id);
+            const ts = row && (row.completed_at || row.created_at);
+            if (ts) attrs["data-ts"] = String(ts);
+            const key = ts ? Date.parse(ts) : (Number(row?.id) || 0);
+            attrs["data-key"] = String(Number.isFinite(key) ? key : 0);
+            const card = UI.el("article", attrs);
             const header = UI.el("div", { class: "pqueue-history-card__header" }, [UI.statusBadge(row.status || "success"), UI.el("span", { class: "pqueue-history-card__time", text: row.completed_at ? Format.relative(row.completed_at) : Format.relative(row.created_at) })]);
             const fileLabel = UI.historyPrimaryFilename(row);
             const meta = UI.el("div", { class: "pqueue-history-card__meta" }, [UI.el("span", { class: "pqueue-code", text: fileLabel }), UI.el("span", { class: "pqueue-history-card__duration", text: Format.duration(Number(row.duration_seconds)) || "—" })]);
