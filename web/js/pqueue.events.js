@@ -313,6 +313,7 @@
                 const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
                 if (grid && sentinel && list.length) {
                     UI.withStableAnchor(() => {
+                        try { Array.from(grid.querySelectorAll('.pqueue-empty')).forEach((n) => n.remove()); } catch (err) { /* noop */ }
                         for (const row of list) {
                             const id = row?.id;
                             if (id == null || state.historyIds.has(id)) continue;

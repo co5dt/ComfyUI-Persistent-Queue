@@ -639,6 +639,7 @@
                 if (!grid || !sentinel) return;
                 const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
                 UI.withStableAnchor(() => {
+                    try { Array.from(grid.querySelectorAll('.pqueue-empty')).forEach((n) => n.remove()); } catch (err) { /* noop */ }
                     const existingIds = new Set(Array.from(grid.querySelectorAll('.pqueue-history-card')).map((n) => n.getAttribute('data-id')));
                     const ordered = Array.isArray(state.history) ? state.history.slice() : [];
                     try {
@@ -800,6 +801,7 @@
                 } catch (err) { /* noop */ }
                 if (!state.historyIds) state.historyIds = new Set();
                 UI.withStableAnchor(() => {
+                    try { Array.from(grid.querySelectorAll('.pqueue-empty')).forEach((n) => n.remove()); } catch (err) { /* noop */ }
                     for (const row of list) {
                         const id = row?.id;
                         if (id == null || state.historyIds.has(id)) continue;
