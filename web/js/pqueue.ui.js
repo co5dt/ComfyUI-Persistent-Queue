@@ -1079,9 +1079,46 @@
                         if (!entry.isIntersecting) return;
                         Events.loadMoreHistory();
                     });
-                }, { root: root, rootMargin: '600px 0px', threshold: 0 });
+                }, { root: root, rootMargin: '360px 0px', threshold: 0 });
                 obs.observe(sentinel);
                 state.historyObserver = obs;
+            } catch (err) { /* noop */ }
+        },
+
+        ensureThumbObserver() {
+            try {
+                if (!('IntersectionObserver' in window)) return;
+                const grid = state.dom.historyGrid;
+                if (!grid) return;
+
+                if (state.thumbObserver) {
+                    try { state.thumbObserver.disconnect(); } catch (e) {}
+                    state.thumbObserver = null;
+                }
+
+                const scroller = UI.getScrollContainer();
+                const rootIsAncestor = (el, ancestor) => {
+                    try { return ancestor instanceof Element ? ancestor.contains(el) : false; } catch (err) { return false; }
+                };
+                const root = rootIsAncestor(grid, scroller) ? scroller : null;
+                const ric = window.requestIdleCallback || ((cb) => setTimeout(cb, 0));
+                const obs = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        const img = entry.target;
+                        if (!(img instanceof HTMLImageElement)) return;
+                        if (entry.isIntersecting) {
+                            try { img.setAttribute('fetchpriority', 'high'); } catch (err) {}
+                            try { img.decoding = 'async'; } catch (err) {}
+                            try { ric(() => { try { img.decode().catch(() => {}); } catch (e) {} }); } catch (err) {}
+                        } else {
+                            try { img.setAttribute('fetchpriority', 'low'); } catch (err) {}
+                        }
+                    });
+                }, { root, rootMargin: '300px 0px', threshold: 0 });
+
+                const imgs = Array.from(grid.querySelectorAll('.pqueue-thumb'));
+                imgs.forEach((img) => { try { obs.observe(img); } catch (err) {} });
+                state.thumbObserver = obs;
             } catch (err) { /* noop */ }
         },
 
