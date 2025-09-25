@@ -1066,12 +1066,20 @@
                     state.historyPaging.hasMore = true;
                 }
 
+                const scroller = UI.getScrollContainer();
+                const rootIsAncestor = (el, ancestor) => {
+                    try {
+                        if (!ancestor || !(ancestor instanceof Element)) return false;
+                        return ancestor.contains(el);
+                    } catch (err) { return false; }
+                };
+                const root = rootIsAncestor(sentinel, scroller) ? scroller : null;
                 const obs = new IntersectionObserver((entries) => {
                     entries.forEach((entry) => {
                         if (!entry.isIntersecting) return;
                         Events.loadMoreHistory();
                     });
-                }, { root: null, rootMargin: '600px 0px', threshold: 0 });
+                }, { root: root, rootMargin: '600px 0px', threshold: 0 });
                 obs.observe(sentinel);
                 state.historyObserver = obs;
             } catch (err) { /* noop */ }
