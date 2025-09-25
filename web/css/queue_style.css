@@ -168,4 +168,6 @@
 .pqueue-table-wrapper{padding-bottom:.25rem}
 .pqueue-col--submitted .pqueue-cell__primary,.pqueue-col--estimate .pqueue-cell__primary{font-weight:500}
 .pqueue-muted{color:var(--subtle-text,#94a3b8)}
+/* Stabilize running card height to avoid tiny layout shifts */
+.pqueue-item--running{min-height:56px}
  

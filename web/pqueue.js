@@ -690,8 +690,9 @@
             }
             const card = UI.card("Currently running", {
                 icon: "ti ti-activity-heartbeat",
-                subtitle: state.metrics.runningCount ? `${state.metrics.runningCount} active` : null,
+                subtitle: state.metrics.runningCount ? `${state.metrics.runningCount} active` : "",
                 content: rows,
+                classes: "pqueue-card--running",
             });
             state.dom.runningCard = card;
             return card;
@@ -1027,7 +1028,8 @@
                     if (!card) return;
                     const body = card.querySelector('.pqueue-card__body');
                     if (!body) return;
-                    const beforeHeight = Math.max(0, body.offsetHeight || 0);
+                    const rect = body.getBoundingClientRect();
+                    const beforeHeight = Math.max(0, (rect && rect.height) || 0);
                     body.innerHTML = '';
                     if (!state.queue_running.length) {
                         // Preserve current height to avoid layout shift
