@@ -169,6 +169,7 @@
             lastFailure: null,
         },
         isRefreshing: false,
+        renderLockUntil: 0,
         lastUpdated: null,
         error: null,
         statusMessage: null,
