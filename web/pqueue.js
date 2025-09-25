@@ -170,6 +170,8 @@
         },
         isRefreshing: false,
         renderLockUntil: 0,
+        anchorLockDepth: 0,
+        anchorSnapshot: null,
         lastUpdated: null,
         error: null,
         statusMessage: null,
@@ -479,28 +481,37 @@
         // Keep an anchor element visually stationary while mutating DOM
         withStableAnchor(mutator) {
             try {
-                const scroller = UI.getScrollContainer();
-                const anchor = state.dom.historyCard || state.dom.root;
-                let before = null;
-                if (scroller && anchor) {
-                    const scRect = scroller.getBoundingClientRect();
-                    const aRect = anchor.getBoundingClientRect();
-                    before = aRect.top - scRect.top;
+                // Nestable anchor-lock to handle multiple mutations as a single atomic block
+                state.anchorLockDepth = (state.anchorLockDepth || 0) + 1;
+                if (state.anchorLockDepth === 1) {
+                    const scroller = UI.getScrollContainer();
+                    const anchor = state.dom.historyCard || state.dom.root;
+                    if (scroller && anchor) {
+                        const scRect = scroller.getBoundingClientRect();
+                        const aRect = anchor.getBoundingClientRect();
+                        state.anchorSnapshot = { scroller, anchor, before: aRect.top - scRect.top };
+                    } else {
+                        state.anchorSnapshot = null;
+                    }
                 }
                 mutator && mutator();
-                requestAnimationFrame(() => {
+                // Flush adjustment only at outermost level
+                window.requestAnimationFrame(() => {
                     try {
-                        if (before == null) return;
-                        const scRect2 = scroller.getBoundingClientRect();
-                        const aRect2 = anchor.getBoundingClientRect();
-                        const after = aRect2.top - scRect2.top;
-                        const delta = after - before;
-                        if (delta !== 0) scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+                        state.anchorLockDepth = Math.max(0, (state.anchorLockDepth || 1) - 1);
+                        if (state.anchorLockDepth === 0 && state.anchorSnapshot && state.anchorSnapshot.scroller && document.body.contains(state.anchorSnapshot.anchor)) {
+                            const { scroller, anchor, before } = state.anchorSnapshot;
+                            const scRect2 = scroller.getBoundingClientRect();
+                            const aRect2 = anchor.getBoundingClientRect();
+                            const delta = (aRect2.top - scRect2.top) - before;
+                            if (delta) scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+                        }
                     } catch (err) { /* noop */ }
                 });
             } catch (err) {
-                // Fallback: just run the mutator
                 try { mutator && mutator(); } catch (e) { /* noop */ }
+                state.anchorLockDepth = 0;
+                state.anchorSnapshot = null;
             }
         },
 
