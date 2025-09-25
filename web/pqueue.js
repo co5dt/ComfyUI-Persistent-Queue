@@ -412,6 +412,44 @@
             }
         },
 
+        // Compute a robust numeric key for history ordering
+        historyKey(row) {
+            try {
+                const ts = row && (row.completed_at || row.created_at);
+                // Numeric timestamp (seconds or ms)
+                if (typeof ts === 'number' && Number.isFinite(ts)) {
+                    return ts < 1e12 ? Math.floor(ts * 1000) : Math.floor(ts);
+                }
+                if (typeof ts === 'string') {
+                    const s = ts.trim();
+                    // Pure digits
+                    if (/^\d+$/.test(s)) {
+                        const n = parseInt(s, 10);
+                        if (Number.isFinite(n)) return n < 1e12 ? n * 1000 : n;
+                    }
+                    // Try ISO-like
+                    let ms = Date.parse(s);
+                    if (!Number.isFinite(ms)) {
+                        // Try replace space with T (e.g. 'YYYY-MM-DD HH:mm:ss')
+                        ms = Date.parse(s.replace(' ', 'T'));
+                    }
+                    if (Number.isFinite(ms)) return ms;
+                }
+                const id = Number(row?.id);
+                return Number.isFinite(id) ? id : 0;
+            } catch (err) {
+                const id = Number(row?.id);
+                return Number.isFinite(id) ? id : 0;
+            }
+        },
+
+        // Composite key: [ms, id] for strict total ordering
+        historyKeyParts(row) {
+            const ms = UI.historyKey(row) || 0;
+            const id = Number(row?.id) || 0;
+            return [ms, id];
+        },
+
         // Find and cache the real scroll container (ComfyUI sidebar)
         getScrollContainer() {
             try {
@@ -896,17 +934,25 @@
                     if (!id || existingIds.has(id)) continue;
                     const card = UI.historyCard(row);
                     const key = Number(card.getAttribute('data-key') || 0);
+                    const key2 = Number(card.getAttribute('data-key2') || 0);
                     const existingCards = Array.from(grid.querySelectorAll('.pqueue-history-card'));
                     let inserted = false;
-                    for (const existing of existingCards) {
-                        const otherKey = Number(existing.getAttribute('data-key') || 0);
-                        if (dir === 'desc') {
-                            if (key >= otherKey) { grid.insertBefore(card, existing); inserted = true; break; }
-                        } else {
-                            if (key <= otherKey) { grid.insertBefore(card, existing); inserted = true; break; }
+                    if (dir === 'desc') {
+                        for (const existing of existingCards) {
+                            const otherKey = Number(existing.getAttribute('data-key') || 0);
+                            const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
+                            if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing); inserted = true; break; }
                         }
+                        if (!inserted) grid.insertBefore(card, sentinel);
+                    } else {
+                        for (let i = existingCards.length - 1; i >= 0; i--) {
+                            const existing = existingCards[i];
+                            const otherKey = Number(existing.getAttribute('data-key') || 0);
+                            const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
+                            if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing.nextSibling || sentinel); inserted = true; break; }
+                        }
+                        if (!inserted) grid.insertBefore(card, sentinel);
                     }
-                    if (!inserted) grid.insertBefore(card, sentinel);
                     existingIds.add(id);
                 }
 
@@ -1042,9 +1088,10 @@
                 try {
                     const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
                     list = list.slice().sort((a, b) => {
-                        const ak = Date.parse(a?.completed_at || a?.created_at || 0) || (a?.id || 0);
-                        const bk = Date.parse(b?.completed_at || b?.created_at || 0) || (b?.id || 0);
-                        return dir === 'desc' ? (bk - ak) : (ak - bk);
+                        const [ams, aid] = UI.historyKeyParts(a);
+                        const [bms, bid] = UI.historyKeyParts(b);
+                        if (ams !== bms) return dir === 'desc' ? (bms - ams) : (ams - bms);
+                        return dir === 'desc' ? (bid - aid) : (aid - bid);
                     });
                 } catch (err) { /* noop */ }
                 if (!state.historyIds) state.historyIds = new Set();
@@ -1057,17 +1104,27 @@
                     const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
                     // Determine insertion point by timestamp or id, matching current sort
                     const key = Number(card.getAttribute('data-key') || 0);
+                    const key2 = Number(card.getAttribute('data-key2') || 0);
                     const existingCards = Array.from(grid.querySelectorAll('.pqueue-history-card'));
                     let inserted = false;
-                    for (const existing of existingCards) {
-                        const otherKey = Number(existing.getAttribute('data-key') || 0);
-                        if (dir === 'desc') {
-                            if (key >= otherKey) { grid.insertBefore(card, existing); inserted = true; break; }
-                        } else {
-                            if (key <= otherKey) { grid.insertBefore(card, existing); inserted = true; break; }
+                    if (dir === 'desc') {
+                        // Newest-first: insert before first card with smaller key; break ties by id
+                        for (const existing of existingCards) {
+                            const otherKey = Number(existing.getAttribute('data-key') || 0);
+                            const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
+                            if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing); inserted = true; break; }
                         }
+                        if (!inserted) grid.insertBefore(card, sentinel);
+                    } else {
+                        // Oldest-first: insert after last card with smaller/equal key; break ties by id
+                        for (let i = existingCards.length - 1; i >= 0; i--) {
+                            const existing = existingCards[i];
+                            const otherKey = Number(existing.getAttribute('data-key') || 0);
+                            const otherKey2 = Number(existing.getAttribute('data-key2') || 0);
+                            if (key > otherKey || (key === otherKey && key2 >= otherKey2)) { grid.insertBefore(card, existing.nextSibling || sentinel); inserted = true; break; }
+                        }
+                        if (!inserted) grid.insertBefore(card, sentinel);
                     }
-                    if (!inserted) grid.insertBefore(card, sentinel);
                     // Maintain in-memory list order similarly
                     if (Array.isArray(state.history)) {
                         if (dir === 'desc') state.history.unshift(row);
@@ -1201,9 +1258,10 @@
             const attrs = { class: "pqueue-history-card", title: Format.tooltip(row) };
             if (row && row.id != null) attrs["data-id"] = String(row.id);
             const ts = row && (row.completed_at || row.created_at);
-            if (ts) attrs["data-ts"] = String(ts);
-            const key = ts ? Date.parse(ts) : (Number(row?.id) || 0);
-            attrs["data-key"] = String(Number.isFinite(key) ? key : 0);
+            if (ts != null) attrs["data-ts"] = String(ts);
+            const [ms, idPart] = UI.historyKeyParts(row);
+            attrs["data-key"] = String(ms);
+            attrs["data-key2"] = String(idPart);
             const card = UI.el("article", attrs);
             const header = UI.el("div", { class: "pqueue-history-card__header" }, [UI.statusBadge(row.status || "success"), UI.el("span", { class: "pqueue-history-card__time", text: row.completed_at ? Format.relative(row.completed_at) : Format.relative(row.created_at) })]);
             const fileLabel = UI.historyPrimaryFilename(row);
@@ -1821,6 +1879,40 @@
             } catch (err) { /* noop */ }
         },
 
+        async syncLatestForAsc() {
+            try {
+                const paging = state.historyPaging;
+                const params = paging?.params || {};
+                if ((params.sort_dir || 'desc') !== 'asc') return;
+                const latestParams = { ...params, sort_dir: 'desc', limit: Math.min(10, params.limit || 10) };
+                delete latestParams.cursor_id;
+                delete latestParams.cursor_value;
+                const result = await API.getHistoryPaginated(latestParams);
+                let list = Array.isArray(result?.history) ? result.history : [];
+                if (!list.length) return;
+                // Normalize to current ordering key so reconcile inserts correctly
+                try {
+                    const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
+                    list = list.slice().sort((a, b) => {
+                        const ak = UI.historyKey(a);
+                        const bk = UI.historyKey(b);
+                        return dir === 'desc' ? (bk - ak) : (ak - bk);
+                    });
+                } catch (err) { /* noop */ }
+                if (!state.historyIds) state.historyIds = new Set();
+                let added = 0;
+                for (const row of list) {
+                    const id = row?.id;
+                    if (id == null || state.historyIds.has(id)) continue;
+                    state.historyIds.add(id);
+                    // Keep in-memory list (first page) extended; reconciliation will order
+                    state.history.push(row);
+                    added += 1;
+                }
+                if (added) UI.reconcileHistoryFromState();
+            } catch (err) { /* noop */ }
+        },
+
         async togglePause() {
             try {
                 if (state.paused) await API.resume();
@@ -2213,6 +2305,9 @@
                 state.historyPaging.hasMore = true;
                 if (sentinel) sentinel.style.display = '';
                 await Events.loadMoreHistory();
+                // If sorting asc, proactively fetch a small page of latest items and reconcile,
+                // so newly finished rows appear at the bottom without toggling sort
+                await Events.syncLatestForAsc();
                 UI.updateHistorySubtitle();
                 UI.updateSortToggle();
                 if (typeof restore === 'function') requestAnimationFrame(restore);
@@ -2425,6 +2520,8 @@
             }
             // After state updated, attempt incremental UI update to prevent flicker
             try { UI.updateAfterRefresh(paged); } catch (err) { /* noop */ }
+            // In asc mode, also proactively fetch a small latest page and reconcile
+            try { await Events.syncLatestForAsc(); } catch (err) { /* noop */ }
         } catch (err) {
             console.error("pqueue: refresh failed", err);
             state.error = err?.message || "Failed to load persistent queue";
