@@ -109,7 +109,7 @@
 .pqueue-thumb-row{display:flex;flex-wrap:wrap;gap:.5rem}
 .pqueue-thumb-wrap{position:relative;width:100px;height:100px;border-radius:8px;overflow:hidden;background:rgba(24,24,27,.6);border:1px solid rgba(82,82,91,.24);cursor:pointer}
 .pqueue-history-sentinel{display:flex;align-items:center;justify-content:center;min-height:48px;opacity:.7}
-.pqueue-popover{position:fixed;min-width:320px;max-width:420px;max-height:80vh;overflow-y:auto;overflow-x:hidden;padding:0;background:#1a1a1a;border:1px solid rgba(82,82,91,.22);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);z-index:100000;opacity:0;transform:scale(.96);transition:opacity .16s ease,transform .16s ease}
+.pqueue-popover{position:fixed;min-width:320px;max-width:420px;max-height:80vh;overflow-y:auto;overflow-x:hidden;padding:0;background:#1a1a1a;border:1px solid rgba(82,82,91,.22);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);z-index:100000;opacity:0;transform:translateZ(0) scale(.96);transition:opacity .16s ease,transform .16s ease}
 .pqueue-popover[data-open=true]{opacity:1;transform:scale(1)}
 .pqueue-popover__arrow{position:absolute;top:-8px;left:24px;width:16px;height:16px;background:#1a1a1a;border-left:1px solid rgba(82,82,91,.22);border-top:1px solid rgba(82,82,91,.22);transform:rotate(45deg);border-top-left-radius:3px}
 .pqueue-popover--above .pqueue-popover__arrow{top:auto;bottom:-8px;transform:rotate(45deg);background:#1a1a1a;border-left:none;border-top:none;border-right:1px solid rgba(82,82,91,.22);border-bottom:1px solid rgba(82,82,91,.22)}
