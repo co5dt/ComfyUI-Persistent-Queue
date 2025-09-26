@@ -317,6 +317,11 @@
                 } catch (err) { /* ignore */ }
             }
         } catch (err) { /* ignore */ }
+        // Fallback: derive from current browser tab title
+        try {
+            const t = UI.getCurrentWorkflowNameFromTitle && UI.getCurrentWorkflowNameFromTitle();
+            if (t) return t;
+        } catch (err) { /* ignore */ }
         return "Untitled workflow";
     };
 
