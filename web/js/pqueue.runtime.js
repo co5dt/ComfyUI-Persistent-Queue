@@ -26,6 +26,13 @@
             state.error = null;
 
             const index = new Map();
+            // Prefer db_by_id when available so running items also have DB info (renamed names)
+            if (queue?.db_by_id && typeof queue.db_by_id === 'object') {
+                Object.values(queue.db_by_id).forEach((row) => {
+                    try { if (row?.prompt_id) index.set(String(row.prompt_id), row); } catch (err) { /* noop */ }
+                });
+            }
+            // Always include db_pending as well
             state.db_pending.forEach((row) => {
                 if (row?.prompt_id) index.set(String(row.prompt_id), row);
             });
