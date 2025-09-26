@@ -641,6 +641,51 @@
                 UI.updateToolbarStatus();
             }
         },
+        
+        async executeSelectedJobs() {
+            refreshRefs();
+            if (!state.selectedPending.size) return;
+            
+            const isPaused = !!state.paused;
+            const action = isPaused ? "run" : "skip";
+            
+            const selectedIds = Array.from(state.selectedPending);
+            
+            try {
+                if (isPaused) {
+                    // Run selected jobs
+                    console.log('Running selected jobs:', selectedIds);
+                    const response = await API.runSelectedJobs(selectedIds);
+                    const result = await response.json();
+                    console.log('Run selected response:', response.status, result);
+                    if (!response.ok) {
+                        throw new Error(result.error || 'Failed to run selected jobs');
+                    }
+                    setStatusMessage(`Running ${selectedIds.length} selected job${selectedIds.length === 1 ? "" : "s"}`);
+                    // Force an immediate refresh to reflect the new top-of-queue order
+                    await refresh({ force: true });
+                    // Schedule a follow-up refresh to account for any async server re-heapify
+                    window.setTimeout(() => { try { refresh({ skipIfBusy: true }); } catch (err) {} }, 150);
+                } else {
+                    // Skip selected jobs (remove from queue)
+                    console.log('Skipping selected jobs:', selectedIds);
+                    const response = await API.skipSelectedJobs(selectedIds);
+                    const result = await response.json();
+                    console.log('Skip selected response:', response.status, result);
+                    if (!response.ok) {
+                        throw new Error(result.error || 'Failed to skip selected jobs');
+                    }
+                    setStatusMessage(`Skipped ${selectedIds.length} selected job${selectedIds.length === 1 ? "" : "s"}`);
+                }
+                
+                state.selectedPending.clear();
+                UI.updateSelectionUI();
+            } catch (err) {
+                console.error(`pqueue: ${action} selected jobs failed`, err);
+                state.error = err?.message || `Failed to ${action} selected jobs`;
+                UI.updateToolbarStatus();
+            }
+        },
 
         viewWorkflow(id) {
             refreshRefs();

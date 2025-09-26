@@ -24,10 +24,22 @@
             subtle: true,
         });
         clearBtn.addEventListener('click', Events.clearPending);
+        
+        const executeSelectedBtn = UI.button({
+            id: "pqueue-execute-selected",
+            icon: state.paused ? "ti ti-player-play" : "ti ti-player-skip-forward",
+            ariaLabel: state.paused ? "Run selected jobs" : "Skip selected jobs",
+            title: state.paused ? "Run selected jobs" : "Skip selected jobs",
+            variant: state.paused ? "primary" : "warning",
+            subtle: true,
+            disabled: state.selectedPending.size === 0,
+            badge: state.selectedPending.size || null,
+        });
+        executeSelectedBtn.addEventListener('click', Events.executeSelectedJobs);
 
         return UI.el("div", { class: "pqueue-toolbar" }, [
             UI.el("div", { class: "pqueue-toolbar__row" }, [
-                UI.el("div", { class: "pqueue-toolbar__group" }, [pauseBtn, clearBtn]),
+                UI.el("div", { class: "pqueue-toolbar__group" }, [pauseBtn, clearBtn, executeSelectedBtn]),
             ]),
         ]);
     };
@@ -45,6 +57,31 @@
                 pauseBtn.appendChild(UI.icon(isPaused ? 'ti ti-player-play-filled' : 'ti ti-player-pause-filled'));
                 pauseBtn.removeEventListener('click', Events.togglePause);
                 pauseBtn.addEventListener('click', Events.togglePause);
+            }
+            
+            const executeSelectedBtn = document.getElementById('pqueue-execute-selected');
+            if (executeSelectedBtn) {
+                const isPaused = !!state.paused;
+                const hasSelected = state.selectedPending.size > 0;
+                executeSelectedBtn.title = isPaused ? 'Run selected jobs' : 'Skip selected jobs';
+                executeSelectedBtn.setAttribute('aria-label', isPaused ? 'Run selected jobs' : 'Skip selected jobs');
+                executeSelectedBtn.classList.toggle('pqueue-button--primary', isPaused);
+                executeSelectedBtn.classList.toggle('pqueue-button--warning', !isPaused);
+                executeSelectedBtn.disabled = !hasSelected;
+                
+                // Update icon
+                executeSelectedBtn.innerHTML = '';
+                executeSelectedBtn.appendChild(UI.icon(isPaused ? 'ti ti-player-play' : 'ti ti-player-skip-forward'));
+                
+                // Update badge
+                const existingBadge = executeSelectedBtn.querySelector('.pqueue-button__badge');
+                if (existingBadge) existingBadge.remove();
+                if (hasSelected) {
+                    executeSelectedBtn.appendChild(UI.el("span", { class: "pqueue-button__badge", text: String(state.selectedPending.size) }));
+                }
+                
+                executeSelectedBtn.removeEventListener('click', Events.executeSelectedJobs);
+                executeSelectedBtn.addEventListener('click', Events.executeSelectedJobs);
             }
         } catch (err) { /* noop */ }
     };

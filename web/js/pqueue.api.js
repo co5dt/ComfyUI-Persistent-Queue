@@ -40,6 +40,18 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ prompt_id, name }),
             }),
+        runSelectedJobs: (prompt_ids) =>
+            fetch("/api/pqueue/run-selected", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt_ids }),
+            }),
+        skipSelectedJobs: (prompt_ids) =>
+            fetch("/api/pqueue/skip-selected", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt_ids }),
+            }),
     };
 
     PQ.API = API;

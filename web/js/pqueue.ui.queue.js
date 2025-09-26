@@ -461,6 +461,8 @@
                 state.dom.deleteSelectedBtn.appendChild(UI.el("span", { class: "pqueue-button__badge", text: String(count) }));
             }
         }
+        // Update toolbar controls to refresh execute selected button
+        UI.updateToolbarControls();
     };
 })();
 

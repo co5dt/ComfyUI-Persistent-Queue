@@ -4,7 +4,7 @@ import logging
 import time
 import heapq
 import copy
-from typing import Optional, Any, Dict, Tuple, List, Callable
+from typing import Optional, Any, Dict, Tuple, List, Callable, Set
 
 from aiohttp import web
 
@@ -196,13 +196,14 @@ class QueueHookManager:
     Responsible for wrapping prompt queue methods to add persistence and pause behavior.
     """
 
-    def __init__(self, *, is_paused_fn: Callable[[], bool], on_job_started: Callable[[str], None], on_task_done: Callable[[Any, Any, Any], None]):
+    def __init__(self, *, is_paused_fn: Callable[[], bool], on_job_started: Callable[[str], None], on_task_done: Callable[[Any, Any, Any], None], should_run_when_paused: Optional[Callable[[str], bool]] = None):
         self._original_queue_get = None
         self._original_task_done = None
         self._installed = False
         self._is_paused = is_paused_fn
         self._on_job_started = on_job_started
         self._on_task_done = on_task_done
+        self._should_run_when_paused = should_run_when_paused
 
     def install(self) -> None:
         """Install hooks into execution.PromptQueue if not already installed."""
@@ -214,14 +215,49 @@ class QueueHookManager:
             self._original_queue_get = execution.PromptQueue.get
 
             def get_wrapper(q_self, timeout=None):
-                if self._is_paused():
-                    time.sleep(0.1)
-                    return None
+                # If paused, only allow items explicitly permitted by the manager (run-selected mode)
+                try:
+                    if self._is_paused():
+                        allowed = False
+                        if callable(self._should_run_when_paused):
+                            try:
+                                top = q_self.queue[0] if getattr(q_self, 'queue', None) else None
+                            except Exception:
+                                top = None
+                            if top is not None:
+                                try:
+                                    top_pid = str(top[1])
+                                    allowed = bool(self._should_run_when_paused(top_pid))
+                                except Exception:
+                                    allowed = False
+                        if not allowed:
+                            time.sleep(0.1)
+                            return None
+                except Exception:
+                    # If anything goes wrong during checks, be safe and respect pause
+                    if self._is_paused():
+                        time.sleep(0.1)
+                        return None
+
                 result = self._original_queue_get(q_self, timeout=timeout)
                 if result is not None:
                     try:
                         item, _item_id = result
                         prompt_id = item[1]
+                        # If paused, ensure the popped item is allowed; otherwise, reinsert and yield None
+                        if self._is_paused() and callable(self._should_run_when_paused):
+                            try:
+                                if not self._should_run_when_paused(str(prompt_id)):
+                                    try:
+                                        q_self.queue.append(item)
+                                        heapq.heapify(q_self.queue)
+                                    except Exception:
+                                        pass
+                                    time.sleep(0.05)
+                                    return None
+                            except Exception:
+                                time.sleep(0.05)
+                                return None
                         self._on_job_started(prompt_id)
                     except Exception as e:
                         logging.debug(f"QueueHookManager get_wrapper failed: {e}")
@@ -274,6 +310,8 @@ class RoutesHelper:
             web.patch('/api/pqueue/priority', manager._api_priority),
             web.post('/api/pqueue/delete', manager._api_delete),
             web.patch('/api/pqueue/rename', manager._api_rename),
+            web.post('/api/pqueue/run-selected', manager._api_run_selected),
+            web.post('/api/pqueue/skip-selected', manager._api_skip_selected),
         ]
         self.app.add_routes(routes)
 
@@ -283,10 +321,13 @@ class PersistentQueueManager:
     def __init__(self):
         self.db: QueueDatabase = QueueDatabase()
         self.thumbs: ThumbnailService = ThumbnailService(max_size=128, quality=60)
-        self.paused: bool = False
+        # Default to paused state on startup for safety - user can resume when ready
+        self.paused: bool = True
         self.current_job: Optional[Any] = None
         self._installed: bool = False
         self._hooks: Optional[QueueHookManager] = None
+        # IDs allowed to run while paused (run-selected mode)
+        self._run_selected_remaining: Set[str] = set()
 
     def initialize(self) -> None:
         """Install hooks and API routes after PromptServer is created."""
@@ -304,6 +345,7 @@ class PersistentQueueManager:
             is_paused_fn=lambda: self.paused,
             on_job_started=lambda prompt_id: self.db.update_job_status(prompt_id, 'running'),
             on_task_done=self._on_task_done_persist,
+            should_run_when_paused=self._is_prompt_allowed_while_paused,
         )
         self._hooks.install()
 
@@ -318,6 +360,9 @@ class PersistentQueueManager:
         self._schedule_restore_pending_jobs()
 
         self._installed = True
+        
+        # Log initial state
+        logging.info("PersistentQueue initialized in PAUSED state. Use UI to resume queue processing.")
 
     def _on_task_done_persist(self, args: Tuple[Any, Any, Any]) -> None:
         """Persist history and generate thumbnails before original task_done completes.
@@ -361,6 +406,19 @@ class PersistentQueueManager:
                 logging.debug(f"PersistentQueue: failed to save thumbnails: {te}")
         except Exception as e:
             logging.debug(f"PersistentQueue _on_task_done_persist failed: {e}")
+        # After persisting, if we are in run-selected mode, update remaining set
+        try:
+            q_self, item_id, history_result, status = args
+            item = q_self.currently_running.get(item_id)
+            if item is not None:
+                pid = str(item[1])
+                if pid in self._run_selected_remaining:
+                    self._run_selected_remaining.discard(pid)
+                    if not self._run_selected_remaining:
+                        # All selected jobs finished; keep queue paused and clear state
+                        logging.info("PersistentQueue: Finished all selected jobs; queue remains paused.")
+        except Exception:
+            pass
     
     def _on_prompt(self, json_data: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -424,6 +482,11 @@ class PersistentQueueManager:
     async def _api_get_pqueue(self, request: web.Request) -> web.Response:
         from server import PromptServer
         running, queued = PromptServer.instance.prompt_queue.get_current_queue_volatile()
+        # Ensure queued list is sorted by execution order (heap array is not fully ordered)
+        try:
+            queued_sorted = sorted(queued, key=lambda it: (it[0], str(it[1])))
+        except Exception:
+            queued_sorted = queued
         # Compute per-prompt progress (0..1) using global progress registry when available
         progress_map = {}
         try:
@@ -452,7 +515,7 @@ class PersistentQueueManager:
             "paused": self.paused,
             "db_pending": self.db.get_pending_jobs(),
             "queue_running": running,
-            "queue_pending": queued,
+            "queue_pending": queued_sorted,
             "running_progress": progress_map,
         })
 
@@ -597,37 +660,169 @@ class PersistentQueueManager:
         except Exception as e:
             logging.warning(f"PersistentQueue rename failed: {e}")
             return web.json_response({"ok": False, "error": str(e)}, status=400)
+    
+    async def _api_run_selected(self, request: web.Request) -> web.Response:
+        """Run selected jobs when queue is paused"""
+        try:
+            from server import PromptServer
+            import execution
+            body = await request.json()
+            prompt_ids: List[str] = body.get('prompt_ids', [])
+            
+            logging.info(f"PersistentQueue: run_selected called with {len(prompt_ids)} jobs: {prompt_ids}")
+            logging.info(f"PersistentQueue: paused state = {self.paused}")
+            
+            if not self.paused:
+                return web.json_response({"ok": False, "error": "Queue must be paused to run selected jobs"}, status=400)
+            
+            q = PromptServer.instance.prompt_queue
+            server_instance = PromptServer.instance
+            
+            # First, ensure selected jobs are properly loaded into the queue
+            executed_ids = []
+            selected_items = []
+            
+            # Prepare selected items and determine order by queue number (descending = bottom-most first)
+            missing_ids: List[str] = []
+            with q.mutex:
+                # Map current queue items by prompt_id
+                queue_by_id = {str(item[1]): item for item in q.queue}
 
-    def _rebuild_queue_by_prompt_ids(self, ordered_prompt_ids: List[str]) -> None:
+                selected_set = set(map(str, prompt_ids))
+                # Sort selected that are present by their current number descending (newest/bottom first)
+                selected_present = [queue_by_id[pid] for pid in selected_set if pid in queue_by_id]
+                selected_present_sorted = sorted(selected_present, key=lambda it: it[0], reverse=True)
+                executed_ids = [str(it[1]) for it in selected_present_sorted]
+
+                # Any selected IDs not in queue are missing; handle after lock
+                missing_ids = [pid for pid in map(str, prompt_ids) if pid not in queue_by_id]
+
+            # Load and validate any missing selected from DB (outside of queue lock)
+            for prompt_id in missing_ids:
+                job = self.db.get_job(prompt_id)
+                if not job:
+                    continue
+                try:
+                    workflow_json = job["workflow"]
+                    prompt = json.loads(workflow_json) if isinstance(workflow_json, str) else workflow_json
+                    # Clean rename metadata
+                    if isinstance(prompt, dict):
+                        if 'workflow' in prompt and isinstance(prompt['workflow'], dict):
+                            prompt.pop('workflow', None)
+                        if 'name' in prompt and isinstance(prompt['name'], str):
+                            prompt.pop('name', None)
+                    valid, err, outputs_to_execute, node_errors = await execution.validate_prompt(prompt_id, prompt, None)
+                    if valid:
+                        number = server_instance.number
+                        server_instance.number += 1
+                        extra_data = {}
+                        item = (number, prompt_id, prompt, extra_data, outputs_to_execute)
+                        # Insert this new item at end for now; reorder shortly
+                        with q.mutex:
+                            q.queue.append(item)
+                            heapq.heapify(q.queue)
+                        executed_ids.append(prompt_id)
+                    else:
+                        logging.warning(f"PersistentQueue: Invalid prompt {prompt_id}: {err}")
+                except Exception as e:
+                    logging.error(f"PersistentQueue: Failed to load job {prompt_id}: {e}")
+
+            # Rebuild queue with selected items first, preserving their relative order by number (desc)
+            if executed_ids:
+                with q.mutex:
+                    # Build final selected from current queue and sort by number desc
+                    current_by_id = {str(item[1]): item for item in q.queue}
+                    selected_final = [current_by_id[pid] for pid in executed_ids if pid in current_by_id]
+                    selected_final_sorted = sorted(selected_final, key=lambda it: it[0], reverse=True)
+                    selected_ids_final = [str(it[1]) for it in selected_final_sorted]
+                self._rebuild_queue_by_prompt_ids(selected_ids_final)
+            
+            # Enable run-selected mode while keeping queue paused so only selected items run
+            self._run_selected_remaining = set(map(str, executed_ids))
+            logging.info(f"PersistentQueue: Run-selected mode enabled for {len(executed_ids)} jobs; queue remains paused")
+            
+            return web.json_response({"ok": True, "executed": executed_ids})
+        except Exception as e:
+            logging.error(f"PersistentQueue run selected failed: {e}", exc_info=True)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+    
+    async def _api_skip_selected(self, request: web.Request) -> web.Response:
+        """Skip selected jobs (remove from queue)"""
+        try:
+            from server import PromptServer
+            body = await request.json()
+            prompt_ids: List[str] = body.get('prompt_ids', [])
+            
+            if self.paused:
+                return web.json_response({"ok": False, "error": "Queue must be running to skip jobs"}, status=400)
+            
+            q = PromptServer.instance.prompt_queue
+            skipped_ids = []
+            
+            for pid in prompt_ids:
+                try:
+                    q.delete(pid)
+                    self.db.update_job_status(pid, 'cancelled')
+                    skipped_ids.append(pid)
+                except Exception:
+                    pass
+                    
+            return web.json_response({"ok": True, "skipped": skipped_ids})
+        except Exception as e:
+            logging.warning(f"PersistentQueue skip selected failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    def _rebuild_queue_by_prompt_ids(self, selected_ids_in_order: List[str]) -> None:
+        """Promote only the selected prompt_ids to the front and leave others unchanged.
+
+        The selected_ids_in_order must be in desired execution order (first executes first).
+        We assign them numbers lower than any existing number to ensure they run next,
+        while keeping all other items' numbers intact to preserve global order.
+        """
         from server import PromptServer
         q = PromptServer.instance.prompt_queue
         with q.mutex:
-            # Map current pending items by prompt_id
-            by_id: Dict[str, Tuple] = {}
-            for item in q.queue:
-                # item: (number, prompt_id, prompt, extra_data, outputs_to_execute)
-                by_id[item[1]] = item
+            # Normalize to strings for safe comparisons
+            sel_ids = [str(pid) for pid in selected_ids_in_order]
+            pos_map: Dict[str, int] = {pid: idx for idx, pid in enumerate(sel_ids)}
+            selected_set = set(sel_ids)
 
-            # Build new ordered list; preserve items not specified at the end by current order
-            specified = [pid for pid in ordered_prompt_ids if pid in by_id]
-            unspecified = [it for it in q.queue if it[1] not in set(specified)]
+            # Find current minimum number so we can place selected before it
+            try:
+                min_num = min((it[0] for it in q.queue), default=0)
+            except Exception:
+                min_num = 0
+            new_num_start = min_num - len(sel_ids)
 
-            # Assign new numbers so the new order executes first
             new_items: List[Tuple] = []
-            next_num = -len(specified) if len(specified) > 0 else 0
-            for pid in specified:
-                old = by_id[pid]
-                new_items.append((next_num, old[1], old[2], old[3], old[4]))
-                next_num += 1
-
-            # Append unspecified with their existing relative order but after specified
-            base = next_num
-            for idx, old in enumerate(sorted(unspecified, key=lambda x: x[0])):
-                new_items.append((base + idx, old[1], old[2], old[3], old[4]))
+            for old in q.queue:
+                pid = str(old[1])
+                prompt = old[2]
+                # Clean rename metadata for all items to avoid accidental drift
+                if isinstance(prompt, dict) and ('workflow' in prompt or 'name' in prompt):
+                    prompt = {k: v for k, v in prompt.items() if k not in ['workflow', 'name']}
+                if pid in selected_set:
+                    idx = pos_map.get(pid, 0)
+                    new_num = new_num_start + idx
+                    new_items.append((new_num, old[1], prompt, old[3], old[4]))
+                else:
+                    # Keep existing number to preserve original order
+                    new_items.append((old[0], old[1], prompt, old[3], old[4]))
 
             q.queue = new_items
             heapq.heapify(q.queue)
             q.server.queue_updated()
+            try:
+                # Nudge workers to pick up newly promoted items immediately
+                q.not_empty.notify_all()
+            except Exception:
+                pass
+
+    def _is_prompt_allowed_while_paused(self, prompt_id: str) -> bool:
+        try:
+            return str(prompt_id) in self._run_selected_remaining
+        except Exception:
+            return False
 
     def _apply_priority_to_pending(self) -> None:
         """Rebuild in-memory queue using DB priority DESC, then created_at ASC."""
@@ -652,6 +847,9 @@ class PersistentQueueManager:
                 web.post('/api/pqueue/reorder', self._api_reorder),
                 web.patch('/api/pqueue/priority', self._api_priority),
                 web.post('/api/pqueue/delete', self._api_delete),
+                web.patch('/api/pqueue/rename', self._api_rename),
+                web.post('/api/pqueue/run-selected', self._api_run_selected),
+                web.post('/api/pqueue/skip-selected', self._api_skip_selected),
             ])
         except Exception as e:
             logging.debug(f"PersistentQueue add routes failed: {e}")
