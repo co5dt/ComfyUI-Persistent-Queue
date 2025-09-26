@@ -112,13 +112,13 @@
             const link = document.createElement("link");
             link.id = "pqueue-style";
             link.rel = "stylesheet";
-            link.href = "/extensions/ComfyUI-PersistentQueue/css/queue_style.css";
+            link.href = "/extensions/ComfyUI-Persistent-Queue/css/queue_style.css";
             document.head.appendChild(link);
         }
         if (!document.querySelector("link[data-pqueue-icons]")) {
             const link = document.createElement("link");
             link.rel = "stylesheet";
-            link.href = "/extensions/ComfyUI-PersistentQueue/lib/tabler-icons.min.css";
+            link.href = "/extensions/ComfyUI-Persistent-Queue/lib/tabler-icons.min.css";
             link.dataset.pqueueIcons = "true";
             document.head.appendChild(link);
         }

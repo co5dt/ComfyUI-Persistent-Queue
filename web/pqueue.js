@@ -14,7 +14,7 @@
     }
 
     async function boot() {
-        const base = "/extensions/ComfyUI-PersistentQueue/js";
+        const base = "/extensions/ComfyUI-Persistent-Queue/js";
         const files = [
             `${base}/pqueue.state.js`,
             `${base}/pqueue.api.js`,

@@ -359,7 +359,7 @@
         };
 
         const extension = {
-            name: "ComfyUI-PersistentQueue",
+            name: "ComfyUI-Persistent-Queue",
             setup: () => init(),
         };
 

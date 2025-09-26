@@ -85,7 +85,7 @@ Tips:
 - **My panel doesn’t show up. What should I check?**
   1) Ensure the folder name is exactly `ComfyUI-Persistent-Queue` under `custom_nodes`.
   2) Restart ComfyUI completely.
-  3) Check the terminal logs for a line like "ComfyUI-PersistentQueue initialization failed"—if you see errors about missing packages, install them (see Installation step 3).
+  3) Check the terminal logs for a line like "ComfyUI-Persistent-Queue initialization failed"—if you see errors about missing packages, install them (see Installation step 3).
 
 - **How do I completely reset the extension?**
   Quit ComfyUI and delete `persistent_queue.sqlite3` from your ComfyUI user folder (see “Where your data lives”). This clears saved queue items and history.

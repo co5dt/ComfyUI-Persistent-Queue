@@ -12,6 +12,6 @@ try:
     from .server.queue_manager import queue_manager
     queue_manager.initialize()
 except Exception as e:
-    logging.debug(f"ComfyUI-PersistentQueue initialization failed: {e}")
+    logging.debug(f"ComfyUI-Persistent-Queue initialization failed: {e}")
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', 'WEB_DIRECTORY']
