@@ -54,6 +54,8 @@
         container: null,
         dom: {},
         uiMetricsCollapsed: false,
+        uiQueueCollapsed: false,
+        uiHistoryCollapsed: false,
     };
 
     PQ.state = state;

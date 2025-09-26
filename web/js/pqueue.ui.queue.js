@@ -190,14 +190,73 @@
             UI.el("div", { class: "pqueue-table__footer-right" }, [deleteSelected]),
         ]);
 
-        const card = UI.card("Queue", {
-            icon: "ti ti-stack-front",
-            subtitle: state.metrics.queueCount ? `${state.metrics.queueCount} pending` : null,
-            actions: [filter],
-            content: [wrapper, footer],
+        // Build collapsible card (mirrors metrics behavior)
+        const bodyInner = UI.el("div", { class: "pqueue-pending" }, [wrapper, footer]);
+        const body = UI.el("div", { class: "pqueue-card__body" }, [bodyInner]);
+        try {
+            body.style.overflow = 'hidden';
+            body.style.transition = 'height 120ms ease, opacity 120ms ease';
+        } catch (err) { /* noop */ }
+
+        const titleWrap = UI.el("div", { class: "pqueue-card__title-wrap" });
+        titleWrap.appendChild(UI.icon("ti ti-stack-front", { size: "md" }));
+        titleWrap.appendChild(UI.el("h3", { class: "pqueue-card__title", text: "Queue" }));
+        const subtitleText = state.metrics.queueCount ? `${state.metrics.queueCount} pending` : null;
+        if (subtitleText) titleWrap.appendChild(UI.el("span", { class: "pqueue-card__subtitle", text: subtitleText }));
+
+        const toggle = UI.button({ icon: state.uiQueueCollapsed ? "ti ti-chevron-down" : "ti ti-chevron-up", variant: "ghost", subtle: true, title: state.uiQueueCollapsed ? "Expand" : "Collapse" });
+        toggle.addEventListener("click", () => {
+            try {
+                const isCollapsed = !!state.uiQueueCollapsed;
+                const setIcon = (name) => { try { toggle.innerHTML = ''; toggle.appendChild(UI.icon(name)); } catch (err) { /* noop */ } };
+                if (!isCollapsed) {
+                    const start = body.scrollHeight;
+                    body.style.height = `${start}px`;
+                    body.style.opacity = '1';
+                    requestAnimationFrame(() => {
+                        body.style.height = '0px';
+                        body.style.opacity = '0';
+                    });
+                    const onEnd = () => {
+                        body.removeEventListener('transitionend', onEnd);
+                        setIcon('ti ti-chevron-down');
+                        state.uiQueueCollapsed = true;
+                        try { wrap.setAttribute('data-collapsed', 'true'); } catch (err) { /* noop */ }
+                    };
+                    body.addEventListener('transitionend', onEnd);
+                } else {
+                    const target = bodyInner.scrollHeight;
+                    body.style.height = '0px';
+                    body.style.opacity = '0';
+                    requestAnimationFrame(() => {
+                        const h = bodyInner.scrollHeight || target;
+                        body.style.height = `${h}px`;
+                        body.style.opacity = '1';
+                    });
+                    const onEnd = () => {
+                        body.removeEventListener('transitionend', onEnd);
+                        try { body.style.height = ''; } catch (err) { /* noop */ }
+                        setIcon('ti ti-chevron-up');
+                        state.uiQueueCollapsed = false;
+                        try { wrap.setAttribute('data-collapsed', 'false'); } catch (err) { /* noop */ }
+                    };
+                    body.addEventListener('transitionend', onEnd);
+                }
+            } catch (err) { /* noop */ }
         });
-        state.dom.pendingCard = card;
-        return card;
+
+        const actions = UI.el("div", { class: "pqueue-card__actions" }, [filter, toggle]);
+        const header = UI.el("header", { class: "pqueue-card__header" }, [titleWrap, actions]);
+        const wrap = UI.el("section", { class: ["pqueue-card"] }, [header]);
+        try { wrap.setAttribute('data-collapsed', state.uiQueueCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
+        if (state.uiQueueCollapsed) {
+            try { body.style.height = '0px'; body.style.opacity = '0'; } catch (err) { /* noop */ }
+        } else {
+            try { body.style.height = ''; body.style.opacity = '1'; } catch (err) { /* noop */ }
+        }
+        wrap.appendChild(body);
+        state.dom.pendingCard = wrap;
+        return wrap;
     };
 
     UI.pendingRow = function pendingRow(item) {
