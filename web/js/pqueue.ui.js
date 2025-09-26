@@ -570,7 +570,7 @@
             moveBottomBtn.dataset.action = "move-bottom";
             moveBottomBtn.dataset.id = pid;
 
-            const actionsWrap = UI.el("div", { class: "pqueue-actions-group" }, [deleteBtn, moveTopBtn, moveBottomBtn, UI.icon("ti ti-drag-drop", { size: "sm" })]);
+            const actionsWrap = UI.el("div", { class: "pqueue-actions-group" }, [deleteBtn, moveTopBtn, moveBottomBtn]);
 
             const line2 = UI.el("div", { class: "pqueue-pcard__line2" }, [
                 UI.el("span", { class: "pqueue-muted", text: estimateLabel }),
