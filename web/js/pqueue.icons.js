@@ -91,5 +91,3 @@
     PQ.Icons = Icons;
     window.Icons = Icons;
 })();
-
-
