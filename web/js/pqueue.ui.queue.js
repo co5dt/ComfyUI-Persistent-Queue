@@ -364,7 +364,8 @@
                 if (subtitle) subtitle.textContent = state.metrics.queueCount ? `${state.metrics.queueCount} pending` : '';
                 const table = state.dom.pendingTable;
                 if (!table) return;
-                Array.from(table.querySelectorAll('.pqueue-row[data-id]')).forEach((n) => n.remove());
+				Array.from(table.querySelectorAll('.pqueue-row[data-id]')).forEach((n) => n.remove());
+				try { Array.from(table.querySelectorAll('.pqueue-empty')).forEach((n) => n.remove()); } catch (err) { /* noop */ }
                 const rows = state.queue_pending.map(UI.pendingRow).filter(Boolean);
                 const header = table.querySelector('.pqueue-list__header');
                 const frag = document.createDocumentFragment();
@@ -374,6 +375,15 @@
                 } else {
                     table.appendChild(frag);
                 }
+				if (!rows.length) {
+					const empty = UI.emptyState({
+						icon: 'ti ti-stack-2',
+						title: 'Queue empty',
+						description: 'Enqueue prompts in ComfyUI to populate the persistent queue.',
+					});
+					if (header && header.nextSibling) table.insertBefore(empty, header.nextSibling);
+					else table.appendChild(empty);
+				}
                 UI.refreshFilter();
                 UI.updateSelectionUI();
                 UI.updatePendingFooter(Array.from(table.querySelectorAll('.pqueue-row[data-id]')).filter((r) => r.style.display !== 'none').length);
