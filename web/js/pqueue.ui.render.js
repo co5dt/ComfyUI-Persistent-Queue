@@ -54,9 +54,9 @@
         sections.appendChild(UI.renderPending());
         sections.appendChild(UI.renderHistory());
         root.appendChild(sections);
-        state.container.appendChild(root);
 
-        // Place toolbar outside of scrollable sections at the bottom
+        // Place toolbar outside the scrollable sections but still within root
+        state.container.appendChild(root);
         const toolbarHost = UI.el("div", { class: "pqueue-toolbar-host" });
         toolbarHost.appendChild(UI.renderToolbar());
         state.container.appendChild(toolbarHost);
