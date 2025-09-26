@@ -385,6 +385,31 @@ class PersistentQueueManager:
                 new_state = 'interrupted' if cancelled else 'failed'
             # Persist history and thumbnails BEFORE notifying original logic, to avoid UI race
             self.db.update_job_status(prompt_id, new_state, error=None if completed else status_str)
+            # Ensure any user-provided rename is reflected in the workflow stored to history
+            try:
+                if isinstance(prompt, dict):
+                    # If DB has a more recent renamed workflow JSON, prefer its name field(s)
+                    db_row = self.db.get_job(prompt_id)
+                    if db_row and db_row.get('workflow'):
+                        try:
+                            db_wf = json.loads(db_row['workflow']) if isinstance(db_row['workflow'], str) else db_row['workflow']
+                        except Exception:
+                            db_wf = None
+                        if isinstance(db_wf, dict):
+                            def _extract_name(wf):
+                                try:
+                                    return (wf.get('workflow') or {}).get('name') or wf.get('name')
+                                except Exception:
+                                    return None
+                            db_name = _extract_name(db_wf)
+                            if isinstance(db_name, str) and db_name.strip():
+                                if isinstance(prompt.get('workflow'), dict):
+                                    prompt['workflow']['name'] = db_name.strip()
+                                else:
+                                    prompt['name'] = db_name.strip()
+            except Exception:
+                pass
+
             history_id = self.db.add_history(
                 prompt_id=prompt_id,
                 workflow=prompt,
