@@ -542,7 +542,63 @@ class PersistentQueueManager:
             "queue_running": running,
             "queue_pending": queued_sorted,
             "running_progress": progress_map,
+            # Provide DB rows for ALL visible queue items (pending + running) so UI
+            # can derive labels (including renamed names) even after status changes
+            "db_by_id": self._build_db_lookup_for_queue_items(running, queued_sorted),
         })
+
+    def _build_db_lookup_for_queue_items(self, running: List[Tuple], queued: List[Tuple]) -> Dict[str, Dict[str, Any]]:
+        """Return a mapping of prompt_id -> DB row for all running and queued items.
+
+        Includes at least the workflow text so the UI can derive renamed labels.
+        """
+        try:
+            pids_set: Set[str] = set()
+            try:
+                for it in running or []:
+                    try:
+                        pids_set.add(str(it[1]))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                for it in queued or []:
+                    try:
+                        pids_set.add(str(it[1]))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            pids = [pid for pid in pids_set if pid]
+            if not pids:
+                return {}
+            rows: Dict[str, Dict[str, Any]] = {}
+            # Prefer a single SQL round-trip
+            try:
+                with self.db._get_conn() as conn:
+                    placeholders = ",".join(["?"] * len(pids))
+                    cur = conn.execute(f"SELECT * FROM queue_items WHERE prompt_id IN ({placeholders})", tuple(pids))
+                    for r in cur.fetchall():
+                        try:
+                            d = dict(r)
+                            pid = str(d.get('prompt_id')) if d.get('prompt_id') is not None else None
+                            if pid:
+                                rows[pid] = d
+                        except Exception:
+                            pass
+            except Exception:
+                # Fallback to per-id lookup if bulk query fails
+                for pid in pids:
+                    try:
+                        row = self.db.get_job(pid)
+                        if row:
+                            rows[pid] = row
+                    except Exception:
+                        pass
+            return rows
+        except Exception:
+            return {}
 
     async def _api_get_history(self, request: web.Request) -> web.Response:
         # Support both simple and paginated calls. Frontend can pass sort/filter + cursor for keyset pagination.
