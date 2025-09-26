@@ -23,8 +23,8 @@
     border-radius: 12px;
     background: #1b1b1b;
     box-shadow: 0 1px 2px rgba(0, 0, 0, .24);
-    position: fixed;
-    bottom: 0;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .pqueue-toolbar__row {
