@@ -317,6 +317,23 @@
     flex-wrap: wrap
 }
 
+/* Make only the History card header sticky while scrolling */
+.pqueue-card--history {
+    position: relative;
+}
+
+.pqueue-card--history .pqueue-card__header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #1a1a1a;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-bottom: 1px solid rgba(82, 82, 91, .22);
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+}
+
 .pqueue-card__title-wrap {
     display: flex;
     align-items: center;

@@ -232,7 +232,7 @@
 
         const actions = UI.el("div", { class: "pqueue-card__actions" }, [...UI.historyFilters(), toggle]);
         const header = UI.el("header", { class: "pqueue-card__header" }, [titleWrap, actions]);
-        const wrap = UI.el("section", { class: ["pqueue-card"] }, [header]);
+        const wrap = UI.el("section", { class: ["pqueue-card", "pqueue-card--history"] }, [header]);
         try { wrap.setAttribute('data-collapsed', state.uiHistoryCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
         if (state.uiHistoryCollapsed) {
             try { body.style.height = '0px'; body.style.opacity = '0'; } catch (err) { /* noop */ }

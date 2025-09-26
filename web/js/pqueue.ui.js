@@ -619,6 +619,7 @@
                 actions: UI.historyFilters(),
                 content: grid,
             });
+            try { card.classList.add('pqueue-card--history'); } catch (err) { /* noop */ }
             state.dom.historyCard = card;
             state.dom.historySubtitle = card.querySelector('.pqueue-card__subtitle');
             try { UI.ensureThumbObserver(); } catch (err) { /* noop */ }
