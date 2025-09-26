@@ -1,0 +1,21 @@
+[project]
+name = "persistent-queue"
+description = "A simple, friendly way to make your ComfyUI job queue survive restarts and crashes."
+version = "1.0.0"
+license = {file = "LICENSE"} 
+
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/co5dt/ComfyUI-Persistent-Queue"
+#  Used by Comfy Registry https://registry.comfy.org
+Documentation = "https://github.com/co5dt/ComfyUI-Persistent-Queue/wiki"
+"Bug Tracker" = "https://github.com/co5dt/ComfyUI-Persistent-Queue/issues"
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-Persistent-Queue"
+Icon = "icon-archive-64.png"
+includes = ["icon-archive-64.png"] 
+# "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility
+
