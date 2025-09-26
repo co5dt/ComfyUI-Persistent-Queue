@@ -191,7 +191,7 @@
         ]);
 
         // Build collapsible card (mirrors metrics behavior)
-        const bodyInner = UI.el("div", { class: "pqueue-pending" }, [filter, wrapper, footer]);
+        const bodyInner = UI.el("div", { class: "pqueue-pending" }, [wrapper, footer]);
         const body = UI.el("div", { class: "pqueue-card__body" }, [bodyInner]);
         try {
             body.style.overflow = 'hidden';
