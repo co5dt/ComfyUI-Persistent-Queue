@@ -1461,6 +1461,26 @@
             }
         },
 
+        getCurrentWorkflowNameFromTitle() {
+            try {
+                const title = String(document.title || "").trim();
+                if (!title) return null;
+                const parts = title.split(" - ").map((s) => String(s || "").trim());
+                let name = "";
+                if (parts.length > 1 && /comfyui/i.test(parts[parts.length - 1])) {
+                    name = parts.slice(0, -1).join(" - ");
+                } else {
+                    name = parts[0];
+                }
+                name = String(name || "").trim();
+                if (!name) return null;
+                if (/^(comfyui|persistent queue)$/i.test(name)) return null;
+                return name;
+            } catch (err) {
+                return null;
+            }
+        },
+
         deriveWorkflowLabel(item, dbRow) {
             try {
                 const prompt = item?.[2];
