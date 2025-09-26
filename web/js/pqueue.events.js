@@ -92,7 +92,7 @@
                 if (state.paused) await API.resume();
                 else await API.pause();
                 setStatusMessage(state.paused ? "Resuming queue…" : "Pausing queue…");
-                await refresh();
+                await refresh({ force: true });
             } catch (err) {
                 console.error("pqueue: toggle pause failed", err);
                 state.error = err?.message || "Failed to toggle queue";
@@ -111,7 +111,7 @@
                 const ids = state.queue_pending.map((item) => item[1]).filter(Boolean);
                 await API.del(ids);
                 setStatusMessage(`Cleared ${ids.length} prompt${ids.length === 1 ? "" : "s"}`);
-                await refresh();
+                await refresh({ force: true });
             } catch (err) {
                 console.error("pqueue: clear failed", err);
                 state.error = err?.message || "Failed to clear queue";
@@ -265,7 +265,7 @@
                 await API.del([id]);
                 state.selectedPending.delete(id);
                 setStatusMessage(`Deleted ${id}`);
-                await refresh({ skipIfBusy: true });
+                await refresh({ force: true });
             } catch (err) {
                 console.error("pqueue: delete failed", err);
                 state.error = err?.message || "Failed to delete prompt";
@@ -279,15 +279,21 @@
             try {
                 const table = state.dom.pendingTable;
                 if (!table) return;
+                // Optimistically move the row in the DOM for immediate feedback
+                const rowEl = table.querySelector(`.pqueue-row[data-id="${id}"]`);
+                const header = table.querySelector('.pqueue-list__header');
+                if (!rowEl) return;
+                if (where === 'top') {
+                    if (header && header.nextSibling) table.insertBefore(rowEl, header.nextSibling);
+                    else table.insertBefore(rowEl, table.firstChild);
+                } else {
+                    table.appendChild(rowEl);
+                }
+                // Build new order based on current DOM row order
                 const ids = Array.from(table.querySelectorAll('.pqueue-row[data-id]')).map((r) => r.dataset.id);
-                const currentIndex = ids.indexOf(id);
-                if (currentIndex === -1) return;
-                ids.splice(currentIndex, 1);
-                if (where === 'top') ids.unshift(id);
-                else ids.push(id);
                 await API.reorder(ids);
                 setStatusMessage(where === 'top' ? 'Moved to top' : 'Moved to bottom');
-                await refresh({ skipIfBusy: true });
+                await refresh({ force: true });
             } catch (err) {
                 console.error('pqueue: move failed', err);
                 state.error = err?.message || 'Failed to move prompt';
