@@ -1496,10 +1496,6 @@
                     } catch (err) { /* ignore */ }
                 }
             } catch (err) { /* ignore */ }
-            try {
-                const t = UI.getCurrentWorkflowNameFromTitle && UI.getCurrentWorkflowNameFromTitle();
-                if (t) return t;
-            } catch (err) { /* ignore */ }
             return "Untitled workflow";
         },
 
