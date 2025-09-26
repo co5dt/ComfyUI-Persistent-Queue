@@ -191,7 +191,7 @@
         ]);
 
         // Build collapsible card (mirrors metrics behavior)
-        const bodyInner = UI.el("div", { class: "pqueue-pending" }, [wrapper, footer]);
+        const bodyInner = UI.el("div", { class: "pqueue-pending" }, [filter, wrapper, footer]);
         const body = UI.el("div", { class: "pqueue-card__body" }, [bodyInner]);
         try {
             body.style.overflow = 'hidden';
@@ -245,7 +245,7 @@
             } catch (err) { /* noop */ }
         });
 
-        const actions = UI.el("div", { class: "pqueue-card__actions" }, [filter, toggle]);
+        const actions = UI.el("div", { class: "pqueue-card__actions" }, [toggle]);
         const header = UI.el("header", { class: "pqueue-card__header" }, [titleWrap, actions]);
         const wrap = UI.el("section", { class: ["pqueue-card"] }, [header]);
         try { wrap.setAttribute('data-collapsed', state.uiQueueCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
