@@ -9,8 +9,9 @@ WEB_DIRECTORY = "./web"
 
 # Install persistent queue hooks as soon as this extension is imported.
 try:
-    from .server.queue_manager import queue_manager
-    queue_manager.initialize()
+    from .server.manager import PersistentQueueManager
+    _queue_manager = PersistentQueueManager()
+    _queue_manager.initialize()
 except Exception as e:
     logging.debug(f"ComfyUI-Persistent-Queue initialization failed: {e}")
 
