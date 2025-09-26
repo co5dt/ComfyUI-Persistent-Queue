@@ -1,1 +1,7 @@
 .idea
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+.pytype/
