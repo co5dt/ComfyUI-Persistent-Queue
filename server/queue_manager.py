@@ -763,7 +763,7 @@ class PersistentQueueManager:
             executed_ids = []
             selected_items = []
             
-            # Prepare selected items and determine order by queue number (descending = bottom-most first)
+            # Prepare selected items and determine order by queue number (ascending = top-most first)
             missing_ids: List[str] = []
             with q.mutex:
                 # Map current queue items by prompt_id
@@ -772,7 +772,7 @@ class PersistentQueueManager:
                 selected_set = set(map(str, prompt_ids))
                 # Sort selected that are present by their current number descending (newest/bottom first)
                 selected_present = [queue_by_id[pid] for pid in selected_set if pid in queue_by_id]
-                selected_present_sorted = sorted(selected_present, key=lambda it: it[0], reverse=True)
+                selected_present_sorted = sorted(selected_present, key=lambda it: it[0])
                 executed_ids = [str(it[1]) for it in selected_present_sorted]
 
                 # Any selected IDs not in queue are missing; handle after lock
@@ -811,10 +811,10 @@ class PersistentQueueManager:
             # Rebuild queue with selected items first, preserving their relative order by number (desc)
             if executed_ids:
                 with q.mutex:
-                    # Build final selected from current queue and sort by number desc
+                    # Build final selected from current queue and sort by number asc to preserve queue order
                     current_by_id = {str(item[1]): item for item in q.queue}
                     selected_final = [current_by_id[pid] for pid in executed_ids if pid in current_by_id]
-                    selected_final_sorted = sorted(selected_final, key=lambda it: it[0], reverse=True)
+                    selected_final_sorted = sorted(selected_final, key=lambda it: it[0])
                     selected_ids_final = [str(it[1]) for it in selected_final_sorted]
                 self._rebuild_queue_by_prompt_ids(selected_ids_final)
             
