@@ -108,12 +108,18 @@
     };
 
     UI.ensureAssets = function ensureAssets() {
-        if (!document.getElementById("pqueue-style")) {
+        const ver = (window.PQueue && window.PQueue.cssVersion) || (window.PQueue && (window.PQueue.cssVersion = String(Date.now()))) || String(Date.now());
+        const baseHref = "/extensions/ComfyUI-Persistent-Queue/css/queue_style.css";
+        const desiredHref = baseHref + "?v=" + ver;
+        const existing = document.getElementById("pqueue-style");
+        if (!existing) {
             const link = document.createElement("link");
             link.id = "pqueue-style";
             link.rel = "stylesheet";
-            link.href = "/extensions/ComfyUI-Persistent-Queue/css/queue_style.css";
+            link.href = desiredHref;
             document.head.appendChild(link);
+        } else {
+            try { if (existing.href && !existing.href.endsWith(ver)) existing.href = desiredHref; } catch (err) { /* noop */ }
         }
         if (!document.querySelector("link[data-pqueue-icons]")) {
             const link = document.createElement("link");

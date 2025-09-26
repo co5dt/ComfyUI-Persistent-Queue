@@ -111,7 +111,8 @@
                 const link = document.createElement("link");
                 link.id = "pqueue-style";
                 link.rel = "stylesheet";
-                link.href = "/extensions/ComfyUI-Persistent-Queue/css/queue_style.css";
+                const ver = String(Date.now());
+                link.href = "/extensions/ComfyUI-Persistent-Queue/css/queue_style.css?v=" + ver;
                 document.head.appendChild(link);
             }
             if (!document.querySelector("link[data-pqueue-icons]")) {
