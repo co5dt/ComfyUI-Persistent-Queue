@@ -9,6 +9,7 @@
     UI.render = function render() {
         if (!state.container) return;
         UI.ensureAssets();
+        try { state.container.classList.add("pqueue-host"); } catch (err) { /* noop */ }
 
         const prevDom = state.dom;
         let _prevScrollTop = 0;

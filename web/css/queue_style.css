@@ -20,9 +20,12 @@
     flex-direction: column;
     gap: .75rem;
     padding: .75rem 1rem;
-    border-radius: 12px;
-    background: #1b1b1b;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .24);
+    border-radius: 0;
+    background: rgba(27, 27, 27, .92);
+    border-top: 1px solid rgba(82, 82, 91, .22);
+    box-shadow: 0 -6px 16px rgba(0, 0, 0, .35), 0 1px 2px rgba(0, 0, 0, .24);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     width: 100%;
     box-sizing: border-box;
 }
@@ -31,7 +34,7 @@
     display: flex;
     gap: .75rem;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     flex-wrap: wrap
 }
 
@@ -46,7 +49,11 @@
     gap: .4rem;
     align-items: center;
     color: var(--subtle-text, #9ca3af);
-    min-height: 1.5rem
+    min-height: 1.5rem;
+    margin-left: auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis
 }
 
 .pqueue-toolbar__status-text {
@@ -240,7 +247,54 @@
     position: sticky;
     bottom: 0;
     z-index: 1000;
-    margin-top: .5rem
+    margin-top: auto;
+    padding-top: .5rem
+}
+
+/* Only when pqueue is present, convert host into a 2-row grid */
+.pqueue-host {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: 100%;
+}
+
+/* Ensure the pqueue content can shrink within row 1 */
+.pqueue-host .pqueue-root {
+    height: auto;
+    min-height: 0;
+}
+
+/* Place toolbar host explicitly in the second row when pqueue is present */
+.pqueue-host .pqueue-toolbar-host {
+    grid-row: 2;
+    position: sticky;
+    bottom: 0;
+}
+
+.pqueue-toolbar-host::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 16px;
+    background: linear-gradient(to top, rgba(26, 26, 26, .7), rgba(26, 26, 26, 0));
+    pointer-events: none;
+}
+
+/* Toolbar-specific button refinements without affecting buttons elsewhere */
+.pqueue-toolbar .pqueue-button {
+    min-height: 34px;
+    padding: .45rem .7rem;
+    border: 1px solid rgba(148, 163, 184, .12);
+}
+
+.pqueue-toolbar .pqueue-button:hover:not(:disabled) {
+    border-color: rgba(148, 163, 184, .22);
+}
+
+.pqueue-toolbar__group {
+    flex-wrap: wrap;
 }
 
 .pqueue-card {
