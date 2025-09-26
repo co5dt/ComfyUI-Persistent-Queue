@@ -245,9 +245,9 @@
             } catch (err) { /* noop */ }
         });
 
-        const actions = UI.el("div", { class: "pqueue-card__actions" }, [toggle]);
+        const actions = UI.el("div", { class: "pqueue-card__actions" }, [filter, toggle]);
         const header = UI.el("header", { class: "pqueue-card__header" }, [titleWrap, actions]);
-        const wrap = UI.el("section", { class: ["pqueue-card"] }, [header]);
+        const wrap = UI.el("section", { class: ["pqueue-card", "pqueue-card--queue"] }, [header]);
         try { wrap.setAttribute('data-collapsed', state.uiQueueCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
         if (state.uiQueueCollapsed) {
             try { body.style.height = '0px'; body.style.opacity = '0'; } catch (err) { /* noop */ }

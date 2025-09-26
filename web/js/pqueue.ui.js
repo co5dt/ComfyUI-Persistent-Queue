@@ -486,6 +486,7 @@
                 subtitle: state.metrics.queueCount ? `${state.metrics.queueCount} pending` : null,
                 actions: [filter],
                 content: [wrapper, footer],
+                classes: "pqueue-card--queue",
             });
             state.dom.pendingCard = card;
             return card;
