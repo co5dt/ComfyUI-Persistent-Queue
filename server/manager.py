@@ -299,21 +299,34 @@ class PersistentQueueManager:
             if not pids:
                 return {}
             rows: Dict[str, Dict[str, Any]] = {}
-            # Prefer a single SQL round-trip
+            # Prefer batched queries to avoid SQLite var limits; fall back to per-id on error
             try:
                 with self.db._get_conn() as conn:
-                    placeholders = ",".join(["?"] * len(pids))
-                    cur = conn.execute(f"SELECT * FROM queue_items WHERE prompt_id IN ({placeholders})", tuple(pids))
-                    for r in cur.fetchall():
+                    batch_size = 500
+                    for i in range(0, len(pids), batch_size):
+                        batch = pids[i:i+batch_size]
+                        placeholders = ",".join(["?"] * len(batch))
                         try:
-                            d = dict(r)
-                            pid = str(d.get('prompt_id')) if d.get('prompt_id') is not None else None
-                            if pid:
-                                rows[pid] = d
+                            cur = conn.execute(f"SELECT * FROM queue_items WHERE prompt_id IN ({placeholders})", tuple(batch))
+                            for r in cur.fetchall():
+                                try:
+                                    d = dict(r)
+                                    pid = str(d.get('prompt_id')) if d.get('prompt_id') is not None else None
+                                    if pid:
+                                        rows[pid] = d
+                                except Exception:
+                                    pass
                         except Exception:
-                            pass
+                            # Fallback to per-id lookup for this batch if SQL fails
+                            for pid in batch:
+                                try:
+                                    row = self.db.get_job(pid)
+                                    if row:
+                                        rows[pid] = row
+                                except Exception:
+                                    pass
             except Exception:
-                # Fallback to per-id lookup if bulk query fails
+                # Fallback to per-id for all if connection or other errors
                 for pid in pids:
                     try:
                         row = self.db.get_job(pid)
