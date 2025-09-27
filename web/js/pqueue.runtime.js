@@ -391,14 +391,19 @@
                 const ok = tryWrapApi();
                 if (!ok && !PQ.nameInjector.intervalId) {
                     let ticks = 0;
-                    PQ.nameInjector.intervalId = window.setInterval(() => {
+                    let delay = 50;
+                    const step = () => {
                         try {
-                            if (tryWrapApi() || ++ticks > 300) {
-                                window.clearInterval(PQ.nameInjector.intervalId);
+                            if (tryWrapApi() || ++ticks > 120) {
+                                if (PQ.nameInjector.intervalId) window.clearTimeout(PQ.nameInjector.intervalId);
                                 PQ.nameInjector.intervalId = null;
+                                return;
                             }
+                            delay = Math.min(500, Math.floor(delay * 1.5));
+                            PQ.nameInjector.intervalId = window.setTimeout(step, delay);
                         } catch (err) {}
-                    }, 50);
+                    };
+                    PQ.nameInjector.intervalId = window.setTimeout(step, delay);
                 }
             }
         } catch (err) {}
