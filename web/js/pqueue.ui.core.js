@@ -280,6 +280,58 @@
         return url;
     };
 
+    UI.getActiveWorkflowName = function getActiveWorkflowName() {
+        try {
+            const app = window.app;
+            const activeTab = app?.tabManager?.getActive?.() || app?.tabManager?.activeTab || app?.workspace?.activeTab;
+            const fromTab = activeTab?.title || activeTab?.label || activeTab?.name;
+            const fromProject = (typeof app?.projectManager?.getCurrentProject === 'function' ? app.projectManager.getCurrentProject()?.name : null) || app?.projectManager?.currentProject?.name;
+            const g = app?.graph;
+            const fromGraph = (g?.extra && g.extra.workflow && g.extra.workflow.name) || (g?.workflow && g.workflow.name) || g?.title;
+            let raw = fromTab || fromProject || fromGraph;
+            // DOM fallbacks: prefer exact selectors from current ComfyUI frontend
+            if (!raw) {
+                try {
+                    const sel = [
+                        // Breadcrumb active item label
+                        '#comfyui-body-top .subgraph-breadcrumb .active-breadcrumb-item .p-breadcrumb-item-label',
+                        '.subgraph-breadcrumb .active-breadcrumb-item .p-breadcrumb-item-label',
+                        '.subgraph-breadcrumb .p-breadcrumb-item .p-breadcrumb-item-label',
+                        // Workflow tabs: active togglebutton carries checked/pressed states
+                        '#comfyui-body-top .workflow-tabs .p-togglebutton-checked .workflow-label',
+                        '.workflow-tabs .p-togglebutton-checked .workflow-label',
+                        '#comfyui-body-top .workflow-tabs [data-p-checked="true"] .workflow-label',
+                        '.workflow-tabs [data-p-checked="true"] .workflow-label',
+                        '#comfyui-body-top .workflow-tabs .p-togglebutton[aria-pressed="true"] .workflow-label',
+                        '.workflow-tabs .p-togglebutton[aria-pressed="true"] .workflow-label',
+                    ];
+                    for (const s of sel) {
+                        const n = document.querySelector(s);
+                        if (n && typeof n.textContent === 'string' && n.textContent.trim()) { raw = n.textContent; break; }
+                    }
+                } catch (err) {}
+            }
+            // Broader generic fallbacks as a last resort
+            if (!raw) {
+                try {
+                    const candidates = [];
+                    candidates.push(document.querySelector('.p-tabview-nav li.p-highlight .p-tabview-title'));
+                    candidates.push(document.querySelector('[role="tab"][aria-selected="true"]'));
+                    candidates.push(document.querySelector('.workflow-tab.is-active .workflow-label'));
+                    candidates.push(document.querySelector('.workflow-tab[aria-selected="true"] .workflow-label'));
+                    candidates.push(document.querySelector('[data-test-id="workflow-tab"],[data-testid="workflow-tab"]'));
+                    const node = candidates.find((n) => n && typeof n.textContent === 'string');
+                    raw = node ? node.textContent : null;
+                } catch (err) {}
+            }
+            if (!raw) return null;
+            const name = String(raw).replace(/^[*•]+\s*/, '').trim();
+            return name || null;
+        } catch (err) {
+            return null;
+        }
+    };
+
     
 
     UI.deriveWorkflowLabel = function deriveWorkflowLabel(item, dbRow) {
