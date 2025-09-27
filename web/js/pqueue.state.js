@@ -53,7 +53,7 @@
         statusTimer: null,
         container: null,
         dom: {},
-        uiMetricsCollapsed: false,
+        uiMetricsCollapsed: true,
         uiQueueCollapsed: false,
         uiHistoryCollapsed: false,
     };
