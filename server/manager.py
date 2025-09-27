@@ -499,7 +499,6 @@ class PersistentQueueManager:
             
             # First, ensure selected jobs are properly loaded into the queue
             executed_ids = []
-            selected_items = []
             
             # Prepare selected items and determine order by queue number (ascending = top-most first)
             missing_ids: List[str] = []
@@ -651,27 +650,6 @@ class PersistentQueueManager:
         # order prompt_ids by priority desc, created_at asc
         ordered_ids = [row["prompt_id"] for row in sorted(pending, key=lambda r: (-int(r.get("priority", 0)), r.get("created_at") or ""))]
         self._rebuild_queue_by_prompt_ids(ordered_ids)
-
-    def _install_api_routes(self):
-        try:
-            from server import PromptServer
-            app = PromptServer.instance.app
-            app.add_routes([
-                web.get('/api/pqueue', self._api_get_pqueue),
-                web.get('/api/pqueue/history', self._api_get_history),
-                web.get('/api/pqueue/history/thumb/{history_id:\\d+}', self._api_get_history_thumb),
-                web.get('/api/pqueue/preview', self._api_preview_image),
-                web.post('/api/pqueue/pause', self._api_pause),
-                web.post('/api/pqueue/resume', self._api_resume),
-                web.post('/api/pqueue/reorder', self._api_reorder),
-                web.patch('/api/pqueue/priority', self._api_priority),
-                web.post('/api/pqueue/delete', self._api_delete),
-                web.patch('/api/pqueue/rename', self._api_rename),
-                web.post('/api/pqueue/run-selected', self._api_run_selected),
-                web.post('/api/pqueue/skip-selected', self._api_skip_selected),
-            ])
-        except Exception as e:
-            logging.debug(f"PersistentQueue add routes failed: {e}")
 
     async def _api_get_history_thumb(self, request: web.Request) -> web.Response:
         try:
