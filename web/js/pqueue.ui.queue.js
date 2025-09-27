@@ -177,7 +177,6 @@
         const checkbox = UI.el("input", { type: "checkbox", class: "pqueue-checkbox pqueue-select" });
         checkbox.checked = selected;
 
-        const status = UI.statusBadge(db.status || "pending", { subtle: true });
         const primaryLabel = UI.buildWorkflowLabel(pid, item, db);
         primaryLabel.contentEditable = "true";
         primaryLabel.spellcheck = false;
@@ -253,7 +252,7 @@
             actionsWrap,
         ]);
 
-        const statusLine = UI.el("div", { class: "pqueue-pcard__status" }, [status]);
+        const statusLine = UI.el("div", { class: "pqueue-pcard__status" });
         if (db.error) {
             const err = UI.icon("ti ti-alert-triangle", { size: "sm" });
             err.classList.add("pqueue-row__error");
@@ -355,6 +354,10 @@
         Object.entries(state.running_progress).forEach(([pid, frac]) => {
             const bar = state.dom.root.querySelector(`.pqueue-item[data-id="${pid}"] .pqueue-progress-bar`);
             if (bar) bar.style.width = `${(Number(frac) * 100).toFixed(1)}%`;
+            try {
+                const label = state.dom.root.querySelector(`.pqueue-item[data-id="${pid}"] .pqueue-progress__label`);
+                if (label) label.textContent = Format.percent(frac);
+            } catch (err) { /* noop */ }
         });
     };
 
