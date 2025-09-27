@@ -4,6 +4,7 @@
     const state = (window.PQueue && window.PQueue.state) || {};
     const UI = (window.PQueue && window.PQueue.UI) || (window.PQueue = (window.PQueue || {}), window.PQueue.UI = {}, window.PQueue.UI);
     const Events = (window.PQueue && window.PQueue.Events) || window.Events;
+    const Format = (window.PQueue && window.PQueue.Format) || window.Format;
 
     UI.renderToolbar = function renderToolbar() {
         const pauseBtn = UI.button({
@@ -37,9 +38,54 @@
         });
         executeSelectedBtn.addEventListener('click', Events.executeSelectedJobs);
 
+        const status = UI.el("div", { class: "pqueue-toolbar__status" });
+        state.dom = state.dom || {};
+        state.dom.status = status;
+
+        // Summary row (metrics integrated into toolbar)
+        const summary = UI.el("div", { class: "pqueue-toolbar__summary" });
+        const item = (icon, label, value) => {
+            const el = UI.el("span", { class: "pqueue-summary__item" });
+            el.appendChild(UI.icon(icon, { size: "sm" }));
+            el.appendChild(UI.el("span", { class: "pqueue-muted", text: label }));
+            el.appendChild(UI.el("span", { class: "pqueue-code", text: value }));
+            return el;
+        };
+
+        const m = state.metrics || {};
+        const runningEl = item("ti ti-activity", "Active", String(m.runningCount || 0));
+        const pendingEl = item("ti ti-stack-2", "Pending", String(m.queueCount || 0));
+        const histCount = (state.historyTotal != null) ? state.historyTotal : (m.historyCount || 0);
+        const historyEl = item("ti ti-history", "History", String(histCount || 0));
+        const srVal = (m.successRate != null) ? `${Math.round(m.successRate * 100)}%` : "—";
+        const successEl = item("ti ti-chart-pie", "SR", srVal);
+        const etaVal = m.estimatedTotalDuration ? Format.duration(m.estimatedTotalDuration) : "—";
+        const etaEl = item("ti ti-hourglass-high", "ETA", etaVal);
+        etaEl.title = [
+            m.estimatedRunningDuration ? `Running ~${Format.duration(m.estimatedRunningDuration)}` : null,
+            m.estimatedPendingDuration ? `Pending ~${Format.duration(m.estimatedPendingDuration)}` : null,
+        ].filter(Boolean).join(" • ") || "Estimated total duration based on recent averages";
+
+        state.dom.summary = summary;
+        state.dom.summaryRunning = runningEl.querySelector('.pqueue-code');
+        state.dom.summaryPending = pendingEl.querySelector('.pqueue-code');
+        state.dom.summaryHistory = historyEl.querySelector('.pqueue-code');
+        state.dom.summarySuccess = successEl.querySelector('.pqueue-code');
+        state.dom.summaryEta = etaEl.querySelector('.pqueue-code');
+
+        summary.appendChild(runningEl);
+        summary.appendChild(pendingEl);
+        summary.appendChild(etaEl);
+        summary.appendChild(successEl);
+        summary.appendChild(historyEl);
+
         return UI.el("div", { class: "pqueue-toolbar" }, [
             UI.el("div", { class: "pqueue-toolbar__row" }, [
                 UI.el("div", { class: "pqueue-toolbar__group" }, [pauseBtn, clearBtn, executeSelectedBtn]),
+                status,
+            ]),
+            UI.el("div", { class: ["pqueue-toolbar__row", "pqueue-toolbar__row--secondary"] }, [
+                summary,
             ]),
         ]);
     };
@@ -83,6 +129,20 @@
                 executeSelectedBtn.removeEventListener('click', Events.executeSelectedJobs);
                 executeSelectedBtn.addEventListener('click', Events.executeSelectedJobs);
             }
+
+            // no explicit refresh button; updates are event-driven
+        } catch (err) { /* noop */ }
+    };
+
+    UI.updateToolbarSummary = function updateToolbarSummary() {
+        try {
+            const m = state.metrics || {};
+            if (state.dom.summaryRunning) state.dom.summaryRunning.textContent = String(m.runningCount || 0);
+            if (state.dom.summaryPending) state.dom.summaryPending.textContent = String(m.queueCount || 0);
+            const histCount = (state.historyTotal != null) ? state.historyTotal : (m.historyCount || 0);
+            if (state.dom.summaryHistory) state.dom.summaryHistory.textContent = String(histCount || 0);
+            if (state.dom.summarySuccess) state.dom.summarySuccess.textContent = (m.successRate != null) ? `${Math.round(m.successRate * 100)}%` : '—';
+            if (state.dom.summaryEta) state.dom.summaryEta.textContent = m.estimatedTotalDuration ? Format.duration(m.estimatedTotalDuration) : '—';
         } catch (err) { /* noop */ }
     };
 })();
