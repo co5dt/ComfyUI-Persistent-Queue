@@ -97,6 +97,7 @@
                 console.error("pqueue: toggle pause failed", err);
                 state.error = err?.message || "Failed to toggle queue";
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 
@@ -116,6 +117,7 @@
                 console.error("pqueue: clear failed", err);
                 state.error = err?.message || "Failed to clear queue";
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 
@@ -242,6 +244,7 @@
                 console.error("pqueue: reorder failed", err);
                 state.error = err?.message || "Failed to reorder queue";
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 
@@ -269,6 +272,7 @@
                 console.error("pqueue: delete failed", err);
                 state.error = err?.message || "Failed to delete prompt";
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 
@@ -297,6 +301,7 @@
                 console.error('pqueue: move failed', err);
                 state.error = err?.message || 'Failed to move prompt';
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 
@@ -367,6 +372,7 @@
                 /* ignore load errors to avoid UI jank */
             } finally {
                 if (state.historyPaging) state.historyPaging.isLoading = false;
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 
@@ -638,6 +644,7 @@
                 console.error("pqueue: bulk delete failed", err);
                 state.error = err?.message || "Failed to delete prompts";
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
         
@@ -683,6 +690,7 @@
                 console.error(`pqueue: ${action} selected jobs failed`, err);
                 state.error = err?.message || `Failed to ${action} selected jobs`;
                 UI.updateToolbarStatus();
+                try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (e) { /* noop */ }
             }
         },
 

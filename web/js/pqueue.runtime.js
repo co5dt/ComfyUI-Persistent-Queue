@@ -81,6 +81,7 @@
             state.isRefreshing = false;
             if (!state.dom || !state.dom.root) UI.render();
             UI.updateToolbarStatus();
+            try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (err) { /* noop */ }
         }
     };
 

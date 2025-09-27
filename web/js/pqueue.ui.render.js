@@ -83,12 +83,13 @@
         UI.refreshFilter();
         UI.updateSelectionUI();
         UI.updateToolbarStatus();
+        try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (err) { /* noop */ }
     };
 
     UI.updateAfterRefresh = function updateAfterRefresh(paged) {
         try {
             UI.updateToolbarControls();
-            UI.updateMetrics();
+            try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (err) { /* noop */ }
             UI.updateRunningSection();
             UI.updatePendingSection();
             UI.reconcileHistoryFromState();
