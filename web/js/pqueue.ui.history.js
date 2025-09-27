@@ -330,12 +330,7 @@
             let list = Array.isArray(paged?.history) ? paged.history : [];
             try {
                 const dir = (state.historyPaging?.params?.sort_dir === 'asc') ? 'asc' : 'desc';
-                list = list.slice().sort((a, b) => {
-                    const [ams, aid] = UI.historyKeyParts(a);
-                    const [bms, bid] = UI.historyKeyParts(b);
-                    if (ams !== bms) return dir === 'desc' ? (bms - ams) : (ams - bms);
-                    return dir === 'desc' ? (bid - aid) : (aid - bid);
-                });
+                list = list.slice().sort((a, b) => UI.compareHistoryRows(a, b, dir));
             } catch (err) { /* noop */ }
             if (!state.historyIds) state.historyIds = new Set();
             UI.withStableAnchor(() => {
@@ -392,12 +387,7 @@
                 const existingIds = new Set(Array.from(grid.querySelectorAll('.pqueue-history-card')).map((n) => n.getAttribute('data-id')));
                 const ordered = Array.isArray(state.history) ? state.history.slice() : [];
                 try {
-                    ordered.sort((a, b) => {
-                        const [ams, aid] = UI.historyKeyParts(a);
-                        const [bms, bid] = UI.historyKeyParts(b);
-                        if (ams !== bms) return dir === 'desc' ? (bms - ams) : (ams - bms);
-                        return dir === 'desc' ? (bid - aid) : (aid - bid);
-                    });
+                    ordered.sort((a, b) => UI.compareHistoryRows(a, b, dir));
                 } catch (err) { /* noop */ }
 
                 for (const row of ordered) {

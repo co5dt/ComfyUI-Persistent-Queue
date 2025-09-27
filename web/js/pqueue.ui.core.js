@@ -162,6 +162,17 @@
         return [ms, id];
     };
 
+    UI.compareHistoryRows = function compareHistoryRows(a, b, dir = 'desc') {
+        try {
+            const [ams, aid] = UI.historyKeyParts(a);
+            const [bms, bid] = UI.historyKeyParts(b);
+            if (ams !== bms) return dir === 'desc' ? (bms - ams) : (ams - bms);
+            return dir === 'desc' ? (bid - aid) : (aid - bid);
+        } catch (err) {
+            return 0;
+        }
+    };
+
     UI.getScrollContainer = function getScrollContainer() {
         try {
             if (state?.dom?.scrollContainer && document.body.contains(state.dom.scrollContainer)) return state.dom.scrollContainer;
