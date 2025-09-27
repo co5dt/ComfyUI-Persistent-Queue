@@ -18,8 +18,6 @@
 .pqueue-toolbar {
     display: flex;
     flex-direction: column;
-    gap: .75rem;
-    padding: .75rem 1rem;
     border-radius: 0;
     background: rgba(27, 27, 27, .92);
     border-top: 1px solid rgba(82, 82, 91, .22);
@@ -32,29 +30,22 @@
 
 .pqueue-toolbar__row {
     display: flex;
-    gap: .75rem;
+    gap: 0;
     align-items: center;
     justify-content: center;
-    flex-wrap: wrap
+    flex-wrap: wrap;
+    padding: .15rem 0rem;
+    background: #1a1a1a
 }
 
 .pqueue-toolbar__group {
     display: flex;
     gap: .5rem;
-    align-items: center
+    align-items: center;
+    justify-content: center
 }
 
-.pqueue-toolbar__status {
-    display: flex;
-    gap: .4rem;
-    align-items: center;
-    color: var(--subtle-text, #9ca3af);
-    min-height: 1.5rem;
-    margin-left: auto;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis
-}
+/* removed toolbar status indicator */
 
 .pqueue-toolbar__status-text {
     font-size: .85rem
@@ -70,7 +61,7 @@
 
 .pqueue-toolbar__summary {
     display: flex;
-    gap: 1rem;
+    gap: .6rem;
     align-items: center;
     color: var(--subtle-text, #9ca3af);
     font-size: .82rem
@@ -277,7 +268,7 @@
     left: 0;
     right: 0;
     bottom: 100%;
-    height: 16px;
+    height: 12px;
     background: linear-gradient(to top, rgba(26, 26, 26, .7), rgba(26, 26, 26, 0));
     pointer-events: none;
 }
@@ -380,6 +371,77 @@
     display: flex;
     flex-direction: column;
     gap: .75rem
+}
+
+/* Metrics card (toolbar) - remove spacing and borders in all states */
+.pqueue-card--metrics {
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    background: #1a1a1a;
+    padding: 0rem .5rem;
+    padding-top: .3rem;
+}
+.pqueue-card--metrics[data-collapsed=false] {
+    border-top: 1px solid rgba(82, 82, 91, .22);
+}
+.pqueue-card--metrics .pqueue-card__header {
+    padding: 0;
+    border: none;
+    gap: 0;
+    background: transparent;
+}
+.pqueue-card--metrics .pqueue-card__actions {
+    gap: 0;
+}
+.pqueue-card--metrics .pqueue-card__body {
+    padding: 0;
+    gap: 0;
+}
+
+/* Compact metrics card when inside toolbar */
+.pqueue-card--metrics {
+    padding: .45rem .6rem;
+    gap: .5rem;
+    box-shadow: none;
+}
+
+.pqueue-card--metrics .pqueue-card__header {
+    align-items: center;
+    gap: .5rem;
+}
+
+.pqueue-card--metrics .pqueue-toolbar__summary {
+    gap: .5rem;
+    font-size: .8rem;
+}
+
+.pqueue-card--metrics .pqueue-card__body {
+    gap: .5rem;
+}
+
+.pqueue-card--metrics .pqueue-metrics {
+    gap: .5rem;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.pqueue-card--metrics .pqueue-metric {
+    padding: .6rem;
+}
+
+.pqueue-card--metrics .pqueue-card__actions .pqueue-button {
+    min-height: 28px;
+    padding: .25rem .4rem;
+}
+
+/* Make the collapsed metrics card as slim as possible */
+.pqueue-card--metrics[data-collapsed=true] {
+    padding: 0rem .5rem;
+}
+
+.pqueue-card--metrics[data-collapsed=true] .pqueue-toolbar__summary .pqueue-code {
+    font-size: .74rem;
+    padding: .12rem .3rem;
 }
 
 .pqueue-pending {
