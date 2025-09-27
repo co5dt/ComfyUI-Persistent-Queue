@@ -159,9 +159,31 @@ class PersistentQueueManager:
                     import uuid
                     prompt_id = uuid.uuid4().hex
                     json_data["prompt_id"] = prompt_id
+                # Optional: extract suggested name from extra_data
+                try:
+                    extra = json_data.get('extra_data') or {}
+                    name_hint = None
+                    if isinstance(extra, dict):
+                        name_hint = extra.get('pqueue_workflow_name')
+                    # Build a persistence-only copy with the name; DO NOT mutate json_data['prompt']
+                    persist_prompt = prompt
+                    if isinstance(name_hint, str) and name_hint.strip() and isinstance(prompt, dict):
+                        if isinstance(prompt.get('workflow'), dict):
+                            persist_prompt = dict(prompt)
+                            wf = dict(persist_prompt['workflow'])
+                            wf['name'] = name_hint.strip()
+                            persist_prompt['workflow'] = wf
+                        else:
+                            persist_prompt = dict(prompt)
+                            persist_prompt['name'] = name_hint.strip()
+                    else:
+                        persist_prompt = prompt
+                except Exception:
+                    persist_prompt = prompt
+
                 # Priority scaffold (0 default)
                 priority = 0
-                self.db.add_job(prompt_id, prompt, priority=priority)
+                self.db.add_job(prompt_id, persist_prompt, priority=priority)
         except Exception as e:
             logging.debug(f"PersistentQueue on_prompt persist failed: {e}")
         return json_data

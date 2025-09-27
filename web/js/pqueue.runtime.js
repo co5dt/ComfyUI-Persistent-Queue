@@ -213,6 +213,197 @@
         return null;
     };
 
+    function getBestActiveName() {
+        try {
+            const fromUI = (UI && typeof UI.getActiveWorkflowName === 'function') ? UI.getActiveWorkflowName() : null;
+            const cached = window.PQueue?.vars?.lastActiveWorkflowName || null;
+            const name = fromUI || cached || null;
+            return (typeof name === 'string' && name.trim()) ? name.trim() : null;
+        } catch (err) { return null; }
+    }
+
+    // Do NOT mutate prompt JSON; attach into extra_data to avoid breaking execution
+    function ensureExtraDataHasName(container) {
+        try {
+            if (!container || typeof container !== 'object') return false;
+            const name = getBestActiveName();
+            if (!name) return false;
+            const ed = (container.extra_data && typeof container.extra_data === 'object') ? container.extra_data : (container.extra_data = {});
+            if (typeof ed.pqueue_workflow_name === 'string' && ed.pqueue_workflow_name.trim()) return false;
+            ed.pqueue_workflow_name = name;
+            return true;
+        } catch (err) { return false; }
+    }
+
+    function annotateBodyWithName(bodyObj) {
+        try {
+            if (!bodyObj || typeof bodyObj !== 'object') return false;
+            // Attach via extra_data in the envelope; do not edit prompt
+            return ensureExtraDataHasName(bodyObj);
+        } catch (err) { return false; }
+    }
+
+    function sanitizePromptForExecution(bodyObj) {
+        try {
+            const prompt = bodyObj && bodyObj.prompt;
+            if (!prompt || typeof prompt !== 'object') return false;
+            let changed = false;
+            // Remove accidental metadata keys that are not valid nodes
+            if (Object.prototype.hasOwnProperty.call(prompt, 'name') && typeof prompt.name === 'string') {
+                delete prompt.name; changed = true;
+            }
+            if (Object.prototype.hasOwnProperty.call(prompt, 'workflow') && typeof prompt.workflow === 'object' && !prompt.workflow.class_type) {
+                delete prompt.workflow; changed = true;
+            }
+            return changed;
+        } catch (err) { return false; }
+    }
+
+    function installPromptNameInjector() {
+        try {
+            PQ.nameInjector = PQ.nameInjector || { apiWrapped: false, fetchWrapped: false, intervalId: null, namePollId: null };
+
+            // Keep a cached last-known active workflow name to mitigate timing issues
+            window.PQueue = window.PQueue || {};
+            window.PQueue.vars = window.PQueue.vars || {};
+            if (!PQ.nameInjector.namePollId) {
+                PQ.nameInjector.namePollId = window.setInterval(() => {
+                    try {
+                        const n = (UI && typeof UI.getActiveWorkflowName === 'function') ? UI.getActiveWorkflowName() : null;
+                        if (n && typeof n === 'string' && n.trim()) {
+                            window.PQueue.vars.lastActiveWorkflowName = n.trim();
+                        }
+                    } catch (err) {}
+                }, 500);
+            }
+
+            const tryWrapApi = () => {
+                try {
+                    const apis = [window.app?.api, window.app, window.api, window].filter(Boolean);
+                    if (!apis.length) return false;
+                    const candidates = ['queuePrompt', 'enqueuePrompt', 'prompt', 'queue', 'queue_prompt'];
+                    let wrappedAny = false;
+                    apis.forEach((api) => {
+                        candidates.forEach((fn) => {
+                            const orig = api[fn];
+                            if (typeof orig === 'function' && !orig.__pqueue_wrapped__) {
+                                api[fn] = async function(...args) {
+                                    try {
+                                        if (args && args.length) {
+                                            // Heuristic: merge into extra_data arg if present, else into a body-like envelope
+                                            // Case: queuePrompt(prompt, client_id, extraData?)
+                                            if (typeof args[1] === 'string') {
+                                                if (typeof args[2] === 'object') { ensureExtraDataHasName(args[2]); }
+                                                else { args[2] = {}; ensureExtraDataHasName(args[2]); }
+                                            } else {
+                                                // Case: single envelope arg or different signature
+                                                for (let i = 0; i < args.length; i++) {
+                                                    const a = args[i];
+                                                    if (a && typeof a === 'object') { ensureExtraDataHasName(a); break; }
+                                                }
+                                            }
+                                        }
+                                    } catch (err) {}
+                                    return orig.apply(this, args);
+                                };
+                                try { api[fn].__pqueue_wrapped__ = true; } catch (err) {}
+                                wrappedAny = true;
+                            }
+                        });
+                    });
+                    if (wrappedAny) { PQ.nameInjector.apiWrapped = true; }
+                    return wrappedAny;
+                } catch (err) { return false; }
+            };
+
+            if (!PQ.nameInjector.fetchWrapped) {
+                const origFetch = window.fetch;
+                if (typeof origFetch === 'function') {
+                    window.fetch = function(input, init) {
+                        try {
+                            const isRequestObj = (typeof input === 'object' && input && typeof input.url === 'string');
+                            const url = isRequestObj ? input.url : (typeof input === 'string' ? input : '');
+                            const method = String((init && init.method) || (isRequestObj && input.method) || 'GET').toUpperCase();
+                            if (method === 'POST' && /\/prompt(?:\b|\?|$)/.test(url)) {
+                                // Case A: init with JSON body string
+                                if (init && typeof init.body === 'string') {
+                                    try {
+                                        const body = JSON.parse(init.body);
+                                        if (annotateBodyWithName(body)) {
+                                            const headers = (init.headers instanceof Headers) ? init.headers : new Headers(init.headers || {});
+                                            if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+                                            sanitizePromptForExecution(body);
+                                            const newInit = Object.assign({}, init, { body: JSON.stringify(body), headers });
+                                            return origFetch.call(this, url, newInit);
+                                        }
+                                        // Even if no annotation, still sanitize
+                                        if (sanitizePromptForExecution(body)) {
+                                            const headers = (init.headers instanceof Headers) ? init.headers : new Headers(init.headers || {});
+                                            if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+                                            const newInit = Object.assign({}, init, { body: JSON.stringify(body), headers });
+                                            return origFetch.call(this, url, newInit);
+                                        }
+                                    } catch (err) {}
+                                }
+                                // Case B: Request object input
+                                if (isRequestObj && !init) {
+                                    try {
+                                        const req = input;
+                                        const cloned = req.clone();
+                                        return cloned.text().then((txt) => {
+                                            try {
+                                                const body = JSON.parse(txt);
+                                                const annotated = annotateBodyWithName(body);
+                                                const sanitized = sanitizePromptForExecution(body);
+                                                if (annotated || sanitized) {
+                                                    const headers = new Headers(req.headers || {});
+                                                    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+                                                    const newReq = new Request(req.url, {
+                                                        method: req.method || 'POST',
+                                                        headers,
+                                                        body: JSON.stringify(body),
+                                                        mode: req.mode,
+                                                        credentials: req.credentials,
+                                                        cache: req.cache,
+                                                        redirect: req.redirect,
+                                                        referrer: req.referrer,
+                                                        referrerPolicy: req.referrerPolicy,
+                                                        integrity: req.integrity,
+                                                        keepalive: req.keepalive,
+                                                        signal: req.signal,
+                                                    });
+                                                    return origFetch.call(this, newReq);
+                                                }
+                                            } catch (err) {}
+                                            return origFetch.call(this, input);
+                                        });
+                                    } catch (err) {}
+                                }
+                            }
+                        } catch (err) {}
+                        return origFetch.apply(this, arguments);
+                    };
+                    PQ.nameInjector.fetchWrapped = true;
+                }
+            }
+
+            if (!PQ.nameInjector.apiWrapped) {
+                const ok = tryWrapApi();
+                if (!ok && !PQ.nameInjector.intervalId) {
+                    let ticks = 0;
+                    PQ.nameInjector.intervalId = window.setInterval(() => {
+                        try {
+                            if (tryWrapApi() || ++ticks > 300) {
+                                window.clearInterval(PQ.nameInjector.intervalId);
+                                PQ.nameInjector.intervalId = null;
+                            }
+                        } catch (err) {}
+                    }, 50);
+                }
+            }
+        } catch (err) {}
+    }
+
     function setupSockets() {
         try {
             const api = window.app?.api;
@@ -273,6 +464,7 @@
         const finalize = (el) => {
             state.container = el;
             UI.render();
+            try { installPromptNameInjector(); } catch (err) {}
             if (!setupSockets()) {
                 startPolling();
                 let retries = 50;
@@ -312,6 +504,7 @@
             if (PQ.booted) return;
             PQ.booted = true;
             UI.ensureAssets();
+            try { installPromptNameInjector(); } catch (err) {}
             // Fast retry until the sidebar is ready, then stop entirely
             if (registerSidebar()) return;
 
