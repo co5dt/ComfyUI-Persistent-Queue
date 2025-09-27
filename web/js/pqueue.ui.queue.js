@@ -7,100 +7,7 @@
     const Format = (window.PQueue && window.PQueue.Format) || window.Format;
     const setStatusMessage = (window.PQueue && window.PQueue.setStatusMessage) || window.setStatusMessage;
 
-    UI.renderMetrics = function renderMetrics() {
-        const m = state.metrics;
-        if (!m) return null;
-        const tiles = [
-            UI.metricTile({
-                icon: "ti ti-chart-pie",
-                label: "Success rate",
-                value: m.successRate != null ? `${Math.round(m.successRate * 100)}%` : "—",
-                caption: m.failureCount ? `${m.failureCount} recent failure${m.failureCount === 1 ? "" : "s"}` : "No recent failures",
-                variant: m.successRate != null && m.successRate >= 0.75 ? "success" : "neutral",
-            }),
-            UI.metricTile({
-                icon: "ti ti-clock-hour-3",
-                label: "Avg duration",
-                value: m.avgDuration ? Format.duration(m.avgDuration) : "—",
-                caption: "Calculated from history",
-                variant: "neutral",
-            }),
-            UI.metricTile({
-                icon: "ti ti-hourglass-high",
-                label: "Est. total duration",
-                value: m.estimatedTotalDuration ? Format.duration(m.estimatedTotalDuration) : "—",
-                caption: [
-                    m.estimatedRunningDuration ? `~${Format.duration(m.estimatedRunningDuration)} running` : null,
-                    m.estimatedPendingDuration ? `~${Format.duration(m.estimatedPendingDuration)} pending` : null,
-                ].filter(Boolean).join(" • ") || (m.queueCount ? `${m.queueCount} pending item${m.queueCount === 1 ? "" : "s"}` : "No pending items"),
-                variant: m.estimatedTotalDuration ? "neutral" : "neutral",
-                tooltip: "Sum of per-workflow averages for running (remaining) and pending items. Per-workflow averages are computed from recent history; if unavailable, falls back to global average duration.",
-            }),
-        ];
-        const bodyInner = UI.el("div", { class: "pqueue-metrics" }, tiles);
-        const body = UI.el("div", { class: "pqueue-card__body" }, [bodyInner]);
-        try {
-            body.style.overflow = 'hidden';
-            body.style.transition = 'height 120ms ease, opacity 120ms ease';
-        } catch (err) { /* noop */ }
-        const cardHeader = [];
-        cardHeader.push(UI.el("h3", { class: "pqueue-card__title", text: "Queue Metrics" }));
-        const toggle = UI.button({ icon: state.uiMetricsCollapsed ? "ti ti-chevron-down" : "ti ti-chevron-up", variant: "ghost", subtle: true, title: state.uiMetricsCollapsed ? "Expand" : "Collapse" });
-        toggle.addEventListener("click", () => {
-            try {
-                const isCollapsed = !!state.uiMetricsCollapsed;
-                const iconName = !isCollapsed ? 'ti ti-chevron-down' : 'ti ti-chevron-up';
-                const setIcon = (name) => {
-                    try { toggle.innerHTML = ''; toggle.appendChild(UI.icon(name)); } catch (err) { /* noop */ }
-                };
-                if (!isCollapsed) {
-                    // collapse
-                    const start = body.scrollHeight;
-                    body.style.height = `${start}px`;
-                    body.style.opacity = '1';
-                    requestAnimationFrame(() => {
-                        body.style.height = '0px';
-                        body.style.opacity = '0';
-                    });
-                    const onEnd = () => {
-                        body.removeEventListener('transitionend', onEnd);
-                        setIcon('ti ti-chevron-down');
-                        state.uiMetricsCollapsed = true;
-                    };
-                    body.addEventListener('transitionend', onEnd);
-                } else {
-                    // expand
-                    const target = bodyInner.scrollHeight;
-                    body.style.height = '0px';
-                    body.style.opacity = '0';
-                    requestAnimationFrame(() => {
-                        const h = bodyInner.scrollHeight || target;
-                        body.style.height = `${h}px`;
-                        body.style.opacity = '1';
-                    });
-                    const onEnd = () => {
-                        body.removeEventListener('transitionend', onEnd);
-                        try { body.style.height = ''; } catch (err) { /* noop */ }
-                        setIcon('ti ti-chevron-up');
-                        state.uiMetricsCollapsed = false;
-                    };
-                    body.addEventListener('transitionend', onEnd);
-                }
-            } catch (err) { /* noop */ }
-        });
-        const actions = UI.el("div", { class: "pqueue-card__actions" }, [toggle]);
-        const header = UI.el("header", { class: "pqueue-card__header" }, [UI.el("div", { class: "pqueue-card__title-wrap" }, cardHeader), actions]);
-        const wrap = UI.el("section", { class: ["pqueue-card"] }, [header]);
-        try { wrap.setAttribute('data-collapsed', state.uiMetricsCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
-        if (state.uiMetricsCollapsed) {
-            try { body.style.height = '0px'; body.style.opacity = '0'; } catch (err) { /* noop */ }
-        } else {
-            try { body.style.height = ''; body.style.opacity = '1'; } catch (err) { /* noop */ }
-        }
-        wrap.appendChild(body);
-        state.dom.metrics = wrap;
-        return wrap;
-    };
+    // Metrics card removed; metrics now live within the toolbar summary.
 
     UI.renderRunning = function renderRunning() {
         const rows = [];
@@ -363,15 +270,8 @@
     };
 
     UI.updateMetrics = function updateMetrics() {
-        try {
-            const old = state.dom.metrics;
-            const newMetrics = UI.renderMetrics();
-            if (!newMetrics) return;
-            if (old && old.parentNode) {
-                old.parentNode.replaceChild(newMetrics, old);
-                state.dom.metrics = newMetrics;
-            }
-        } catch (err) { /* noop */ }
+        // Metrics summary is now part of the toolbar; update there instead.
+        try { if (typeof UI.updateToolbarSummary === 'function') UI.updateToolbarSummary(); } catch (err) { /* noop */ }
     };
 
     UI.updateRunningSection = function updateRunningSection() {

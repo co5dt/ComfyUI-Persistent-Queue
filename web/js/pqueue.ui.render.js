@@ -49,8 +49,6 @@
         dom.root = root;
         
         const sections = UI.el("div", { class: "pqueue-sections" });
-        const metrics = UI.renderMetrics();
-        if (metrics) sections.appendChild(metrics);
         sections.appendChild(UI.renderRunning());
         sections.appendChild(UI.renderPending());
         sections.appendChild(UI.renderHistory());
