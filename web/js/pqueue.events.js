@@ -255,7 +255,6 @@
             }
         },
 
-        async savePriority() { refreshRefs(); },
 
         async deleteSingle(id) {
             refreshRefs();
@@ -273,7 +272,7 @@
             }
         },
 
-        async bulkPriority() { refreshRefs(); },
+        // priority editing is not exposed in the current UI; left intentionally unimplemented
         async moveSingle(id, where) {
             refreshRefs();
             try {

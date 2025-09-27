@@ -500,16 +500,7 @@
             }
         }
         const count = state.selectedPending.size || null;
-        if (state.dom.bulkPriorityBtn) {
-            state.dom.bulkPriorityBtn.disabled = !count;
-            const badge = state.dom.bulkPriorityBtn.querySelector(".pqueue-button__badge");
-            if (badge) {
-                if (count) badge.textContent = String(count);
-                else badge.remove();
-            } else if (count) {
-                state.dom.bulkPriorityBtn.appendChild(UI.el("span", { class: "pqueue-button__badge", text: String(count) }));
-            }
-        }
+        // bulk priority editing is currently disabled
         if (state.dom.deleteSelectedBtn) {
             state.dom.deleteSelectedBtn.disabled = !count;
             const badge = state.dom.deleteSelectedBtn.querySelector(".pqueue-button__badge");
