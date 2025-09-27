@@ -1,7 +1,7 @@
 (function () {
     "use strict";
 
-    const UI = (window.PQueue && window.PQueue.UI) || window.UI;
+    const UI = (window.PQueue && window.PQueue.UI) || (window.PQueue = (window.PQueue || {}), window.PQueue.UI = {}, window.PQueue.UI);
     const copyText = (window.PQueue && window.PQueue.copyText) || window.copyText;
 
     UI.ensureWorkflowModal = function ensureWorkflowModal() {

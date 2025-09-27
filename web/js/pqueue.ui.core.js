@@ -9,7 +9,7 @@
     const setStatusMessage = (window.PQueue && window.PQueue.setStatusMessage) || window.setStatusMessage;
     const copyText = (window.PQueue && window.PQueue.copyText) || window.copyText;
 
-    const UI = window.PQueue?.UI || {};
+    const UI = window.PQueue?.UI || (window.PQueue = (window.PQueue || {}), window.PQueue.UI = {}, window.PQueue.UI);
 
     UI.el = function el(tag, attrs = {}, children = []) {
         const el = document.createElement(tag);

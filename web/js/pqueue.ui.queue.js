@@ -3,7 +3,7 @@
 
     const state = (window.PQueue && window.PQueue.state) || {};
     const API = (window.PQueue && window.PQueue.API) || window.API;
-    const UI = (window.PQueue && window.PQueue.UI) || window.UI;
+    const UI = (window.PQueue && window.PQueue.UI) || (window.PQueue = (window.PQueue || {}), window.PQueue.UI = {}, window.PQueue.UI);
     const Format = (window.PQueue && window.PQueue.Format) || window.Format;
     const setStatusMessage = (window.PQueue && window.PQueue.setStatusMessage) || window.setStatusMessage;
 

@@ -2,7 +2,7 @@
     "use strict";
 
     const state = (window.PQueue && window.PQueue.state) || {};
-    const UI = (window.PQueue && window.PQueue.UI) || window.UI;
+    const UI = (window.PQueue && window.PQueue.UI) || (window.PQueue = (window.PQueue || {}), window.PQueue.UI = {}, window.PQueue.UI);
     const Format = (window.PQueue && window.PQueue.Format) || window.Format;
     const Events = (window.PQueue && window.PQueue.Events) || window.Events;
 
