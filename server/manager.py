@@ -9,8 +9,6 @@ from aiohttp import web
 
 from .database import QueueDatabase
 from PIL import Image
-from PIL.PngImagePlugin import PngInfo
-from io import BytesIO
 import os
 import hashlib
 import folder_paths
@@ -766,46 +764,11 @@ class PersistentQueueManager:
             # Embed metadata
             workflow_json = params.get('workflow_json')
             if params['image_format'] == 'webp':
-                self._embed_webp_metadata(img, save_kwargs, workflow_json)
+                self.thumbs.embed_webp_metadata(img, save_kwargs, workflow_json)
             elif params['image_format'] == 'png':
-                self._embed_png_metadata(img, save_kwargs, workflow_json)
+                self.thumbs.embed_png_metadata(img, save_kwargs, workflow_json)
 
             img.save(cache_path, **save_kwargs)
         return cache_path
-
-    def _embed_webp_metadata(self, img: Image.Image, save_kwargs: Dict[str, Any], workflow_json: Optional[str]) -> None:
-        try:
-            exif = img.getexif()
-            if hasattr(img, 'text'):
-                for k in img.text:
-                    val = img.text[k]
-                    if k == 'prompt':
-                        exif[0x0110] = "prompt:{}".format(val)
-                    else:
-                        tag = 0x010F
-                        try:
-                            exif[tag] = f"{k}:{val}"
-                        except Exception:
-                            pass
-            if workflow_json:
-                try:
-                    exif[0x010E] = "workflow:{}".format(workflow_json)
-                except Exception:
-                    pass
-            save_kwargs['exif'] = exif
-        except Exception:
-            pass
-
-    def _embed_png_metadata(self, img: Image.Image, save_kwargs: Dict[str, Any], workflow_json: Optional[str]) -> None:
-        try:
-            pnginfo = PngInfo()
-            if hasattr(img, 'text'):
-                for k in img.text:
-                    pnginfo.add_text(k, img.text[k])
-            if workflow_json:
-                pnginfo.add_text('workflow', workflow_json)
-            save_kwargs['pnginfo'] = pnginfo
-        except Exception:
-            pass
 
 

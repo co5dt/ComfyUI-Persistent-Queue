@@ -181,4 +181,39 @@ class ThumbnailService:
         except Exception:
             return None
 
+    def embed_webp_metadata(self, img: Image.Image, save_kwargs: Dict[str, Any], workflow_json: Optional[str]) -> None:
+        try:
+            exif = img.getexif()
+            if hasattr(img, 'text'):
+                for k in img.text:
+                    val = img.text[k]
+                    if k == 'prompt':
+                        exif[0x0110] = "prompt:{}".format(val)
+                    else:
+                        tag = 0x010F
+                        try:
+                            exif[tag] = f"{k}:{val}"
+                        except Exception:
+                            pass
+            if workflow_json:
+                try:
+                    exif[0x010E] = "workflow:{}".format(workflow_json)
+                except Exception:
+                    pass
+            save_kwargs['exif'] = exif
+        except Exception:
+            pass
+
+    def embed_png_metadata(self, img: Image.Image, save_kwargs: Dict[str, Any], workflow_json: Optional[str]) -> None:
+        try:
+            pnginfo = PngInfo()
+            if hasattr(img, 'text'):
+                for k in img.text:
+                    pnginfo.add_text(k, img.text[k])
+            if workflow_json:
+                pnginfo.add_text('workflow', workflow_json)
+            save_kwargs['pnginfo'] = pnginfo
+        except Exception:
+            pass
+
 
