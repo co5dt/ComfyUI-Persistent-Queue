@@ -515,16 +515,33 @@
                 try {
                     const pid = String(event?.detail?.prompt_id || event?.detail?.data?.prompt_id || '');
                     if (!pid) return;
+                    // Clear all progress-related state for this prompt
                     if (state.progressBaseById) delete state.progressBaseById[pid];
                     if (state.progressLastAggById) delete state.progressLastAggById[pid];
                     if (state.running_progress) delete state.running_progress[pid];
+                    // Force a refresh to get updated sampler counts
+                    refresh({ skipIfBusy: true });
+                } catch (err) { /* noop */ }
+            };
+            
+            const onExecutionStart = (event) => {
+                try {
+                    const pid = String(event?.detail?.prompt_id || event?.detail?.data?.prompt_id || '');
+                    if (pid) {
+                        // Clear cached sampler count to force recalculation
+                        if (state.samplerCountById && state.samplerCountById[pid]) {
+                            delete state.samplerCountById[pid];
+                        }
+                    }
+                    // Always refresh on execution start to get fresh data
+                    refresh({ skipIfBusy: false });
                 } catch (err) { /* noop */ }
             };
 
             api.addEventListener("progress_state", onProgress);
             api.addEventListener("executing", onExecuting);
             api.addEventListener("status", onLifecycle);
-            api.addEventListener("execution_start", onLifecycle);
+            api.addEventListener("execution_start", onExecutionStart);
             api.addEventListener("executed", onLifecycle);
             api.addEventListener("execution_success", onLifecycle);
             api.addEventListener("execution_error", onLifecycle);
