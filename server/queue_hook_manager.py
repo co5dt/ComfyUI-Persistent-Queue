@@ -58,13 +58,44 @@ class QueueHookManager:
                     try:
                         item, _item_id = result
                         prompt_id = item[1]
+                        # Helper: sanitize prompt by stripping non-node metadata keys
+                        def _sanitize_item(it):
+                            try:
+                                n, pid, prompt, extra, outs = it
+                                if isinstance(prompt, dict):
+                                    try:
+                                        prompt_clean = {k: v for k, v in prompt.items() if k not in ('workflow', 'name')}
+                                    except Exception:
+                                        prompt_clean = prompt
+                                    if prompt_clean is not prompt:
+                                        return (n, pid, prompt_clean, extra, outs)
+                            except Exception:
+                                pass
+                            return it
                         # If paused, ensure the popped item is allowed; otherwise, reinsert and yield None
                         if self._is_paused() and callable(self._should_run_when_paused):
                             try:
                                 if not self._should_run_when_paused(str(prompt_id)):
+                                    # Undo the side effects of the pop from the original get():
+                                    # 1) Remove from currently_running
+                                    # 2) Reinsert the item into the heap queue
+                                    # 3) Notify the server that the queue/running set changed
                                     try:
-                                        q_self.queue.append(item)
-                                        heapq.heapify(q_self.queue)
+                                        with q_self.mutex:
+                                            try:
+                                                q_self.currently_running.pop(_item_id, None)
+                                            except Exception:
+                                                pass
+                                            try:
+                                                safe_item = _sanitize_item(item)
+                                                q_self.queue.append(safe_item)
+                                                heapq.heapify(q_self.queue)
+                                            except Exception:
+                                                pass
+                                            try:
+                                                q_self.server.queue_updated()
+                                            except Exception:
+                                                pass
                                     except Exception:
                                         pass
                                     time.sleep(0.05)
@@ -72,6 +103,22 @@ class QueueHookManager:
                             except Exception:
                                 time.sleep(0.05)
                                 return None
+                        # Sanitize both the running copy and the returned item to prevent crashes
+                        try:
+                            with q_self.mutex:
+                                if _item_id in q_self.currently_running:
+                                    try:
+                                        q_self.currently_running[_item_id] = _sanitize_item(q_self.currently_running[_item_id])
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        # Replace the returned item with sanitized version
+                        try:
+                            item = _sanitize_item(item)
+                            result = (item, _item_id)
+                        except Exception:
+                            pass
                         self._on_job_started(prompt_id)
                     except Exception as e:
                         logging.debug(f"QueueHookManager get_wrapper failed: {e}")

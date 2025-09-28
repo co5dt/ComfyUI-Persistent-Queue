@@ -530,22 +530,8 @@ class PersistentQueueManager:
             ok = self.db.update_job_name(prompt_id, str(new_name))
             if not ok:
                 return web.json_response({"ok": False, "error": "job not found"}, status=404)
-            # Update in-memory queue copy to reflect quickly
-            q = PromptServer.instance.prompt_queue
-            with q.mutex:
-                for idx, item in enumerate(list(q.queue)):
-                    try:
-                        if item[1] == prompt_id:
-                            # item = (number, prompt_id, prompt, extra_data, outputs_to_execute)
-                            prompt = item[2]
-                            if isinstance(prompt, dict):
-                                if isinstance(prompt.get('workflow'), dict):
-                                    prompt['workflow']['name'] = str(new_name)
-                                else:
-                                    prompt['name'] = str(new_name)
-                                q.queue[idx] = (item[0], item[1], prompt, item[3], item[4])
-                    except Exception:
-                        pass
+            # Do NOT mutate in-memory prompt JSON in the queue. The UI derives names from DB.
+            # We intentionally avoid adding non-node keys (e.g. name/workflow) to the prompt to prevent execution errors.
             return web.json_response({"ok": True})
         except Exception as e:
             logging.warning(f"PersistentQueue rename failed: {e}")
