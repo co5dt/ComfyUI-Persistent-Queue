@@ -299,7 +299,9 @@ class PersistentQueueManager:
         try:
             for pid, prompt in running_prompts.items():
                 try:
-                    sampler_count_by_id[pid] = int(self._get_total_samplers(pid, prompt))
+                    # Always fetch fresh workflow from DB for running jobs to avoid stale prompt data
+                    # This ensures we get the correct sampler count even if the workflow was modified
+                    sampler_count_by_id[pid] = int(self._get_total_samplers(pid, None))
                 except Exception:
                     pass
         except Exception:
@@ -845,30 +847,37 @@ class PersistentQueueManager:
         Cache the result to avoid repeated parsing.
         """
         total = 0
+        calculated_from_prompt = False
         
         # First, try to calculate from the provided prompt (if available)
         # This ensures we get the most up-to-date count
-        try:
-            total = int(self._count_samplers_from_prompt(prompt) or 0)
-        except Exception:
-            total = 0
+        if prompt is not None:
+            try:
+                total = int(self._count_samplers_from_prompt(prompt) or 0)
+                calculated_from_prompt = True
+            except Exception:
+                total = 0
+                calculated_from_prompt = False
             
-        # If we got a valid count from the prompt, use it and update cache
-        if total > 0:
+        # If we successfully calculated from prompt, always use that value and update cache
+        if calculated_from_prompt and total >= 0:
             try:
                 self._samplers_total[pid] = int(total)
             except Exception:
                 pass
             return int(total)
             
-        # Otherwise, check if we have a cached value
-        try:
-            if pid in self._samplers_total and int(self._samplers_total.get(pid) or 0) > 0:
-                return int(self._samplers_total[pid])
-        except Exception:
-            pass
+        # Only use cached value if we couldn't calculate from prompt
+        if not calculated_from_prompt:
+            try:
+                if pid in self._samplers_total:
+                    cached_val = int(self._samplers_total.get(pid) or 0)
+                    if cached_val >= 0:
+                        return cached_val
+            except Exception:
+                pass
             
-        # Finally, fall back to DB stored workflow
+        # Fall back to DB stored workflow
         try:
             row = self.db.get_job(pid)
             if row and row.get('workflow'):
