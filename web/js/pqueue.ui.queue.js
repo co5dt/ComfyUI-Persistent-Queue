@@ -52,15 +52,8 @@
         const list = UI.el("div", { class: "pqueue-list", id: "pqueue-pending" });
         state.dom.pendingTable = list;
 
-        const filter = UI.el("input", {
-            id: "pqueue-filter",
-            class: "pqueue-input",
-            type: "search",
-            placeholder: "Filter pending by prompt, status, error…",
-            value: state.filters.pending,
-            spellcheck: "false",
-        });
-        state.dom.filterInput = filter;
+        // Search input intentionally removed from UI
+        state.dom.filterInput = null;
 
         const listHeader = UI.el("div", { class: "pqueue-list__header" }, [
             UI.el("label", { class: "pqueue-list__selectall" }, [
@@ -156,7 +149,7 @@
             } catch (err) { /* noop */ }
         });
 
-        const actions = UI.el("div", { class: "pqueue-card__actions" }, [filter, toggle]);
+        const actions = UI.el("div", { class: "pqueue-card__actions" }, [toggle]);
         const header = UI.el("header", { class: "pqueue-card__header" }, [titleWrap, actions]);
         const wrap = UI.el("section", { class: ["pqueue-card", "pqueue-card--queue"] }, [header]);
         try { wrap.setAttribute('data-collapsed', state.uiQueueCollapsed ? 'true' : 'false'); } catch (err) { /* noop */ }
