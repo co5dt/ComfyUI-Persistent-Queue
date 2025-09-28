@@ -831,29 +831,44 @@ class PersistentQueueManager:
         Prefer prompt JSON if available; otherwise fall back to DB stored workflow.
         Cache the result to avoid repeated parsing.
         """
+        total = 0
+        
+        # First, try to calculate from the provided prompt (if available)
+        # This ensures we get the most up-to-date count
+        try:
+            total = int(self._count_samplers_from_prompt(prompt) or 0)
+        except Exception:
+            total = 0
+            
+        # If we got a valid count from the prompt, use it and update cache
+        if total > 0:
+            try:
+                self._samplers_total[pid] = int(total)
+            except Exception:
+                pass
+            return int(total)
+            
+        # Otherwise, check if we have a cached value
         try:
             if pid in self._samplers_total and int(self._samplers_total.get(pid) or 0) > 0:
                 return int(self._samplers_total[pid])
         except Exception:
             pass
-        total = 0
+            
+        # Finally, fall back to DB stored workflow
         try:
-            total = int(self._count_samplers_from_prompt(prompt) or 0)
+            row = self.db.get_job(pid)
+            if row and row.get('workflow'):
+                try:
+                    wf = row['workflow']
+                    wf_obj = json.loads(wf) if isinstance(wf, str) else wf
+                    total = int(self._count_samplers_from_prompt(wf_obj) or 0)
+                except Exception:
+                    total = 0
         except Exception:
             total = 0
-        if total <= 0:
-            try:
-                row = self.db.get_job(pid)
-                if row and row.get('workflow'):
-                    try:
-                        wf = row['workflow']
-                        wf_obj = json.loads(wf) if isinstance(wf, str) else wf
-                        total = int(self._count_samplers_from_prompt(wf_obj) or 0)
-                    except Exception:
-                        total = 0
-            except Exception:
-                total = 0
-        # Do not force to 1; return 0 if not determinable so clients can fall back safely
+            
+        # Cache the result
         try:
             self._samplers_total[pid] = int(total)
         except Exception:
