@@ -343,6 +343,74 @@ class PersistentQueueManager:
             "db_by_id": self._build_db_lookup_for_queue_items(running, queued_sorted),
         })
 
+    async def _api_export_queue(self, request: web.Request) -> web.StreamResponse:
+        """Export the current queue (pending items) as ordered JSON.
+
+        Format:
+        {
+          "version": 1,
+          "exported_at": <iso string>,
+          "items": [
+            { "prompt_id": str, "workflow": object, "priority": int, "created_at": ts/string }
+          ]
+        }
+        """
+        try:
+            from server import PromptServer
+            import datetime
+            # Build ordered pending list by the actual execution order in in-memory queue
+            q = PromptServer.instance.prompt_queue
+            with q.mutex:
+                try:
+                    queued = list(q.queue)
+                except Exception:
+                    queued = []
+            # Sort by number to reflect real order (lowest number executes first)
+            try:
+                queued_sorted = sorted(queued, key=lambda it: (it[0], str(it[1])))
+            except Exception:
+                queued_sorted = queued
+
+            # Build DB lookup to pull stored workflow/priority/created_at
+            db_lookup = self._build_db_lookup_for_queue_items([], queued_sorted)
+
+            items = []
+            for it in queued_sorted:
+                try:
+                    pid = str(it[1])
+                    db_row = db_lookup.get(pid) or {}
+                    wf_text = db_row.get('workflow')
+                    try:
+                        workflow = json.loads(wf_text) if isinstance(wf_text, str) else (wf_text if wf_text is not None else None)
+                    except Exception:
+                        workflow = None
+                    items.append({
+                        "prompt_id": pid,
+                        "workflow": workflow,
+                        "priority": int(db_row.get('priority') or 0),
+                        "created_at": db_row.get('created_at'),
+                    })
+                except Exception:
+                    pass
+
+            payload = {
+                "version": 1,
+                "exported_at": datetime.datetime.now().isoformat(sep=' ', timespec='seconds'),
+                "items": items,
+            }
+
+            text = json.dumps(payload, ensure_ascii=False)
+            return web.Response(
+                text=text,
+                content_type='application/json',
+                headers={
+                    'Content-Disposition': 'attachment; filename="pqueue-export.json"'
+                }
+            )
+        except Exception as e:
+            logging.warning(f"PersistentQueue export failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     def _build_db_lookup_for_queue_items(self, running: List[Tuple], queued: List[Tuple]) -> Dict[str, Dict[str, Any]]:
         """Return a mapping of prompt_id -> DB row for all running and queued items.
 
@@ -502,6 +570,125 @@ class PersistentQueueManager:
             logging.warning(f"PersistentQueue set priority failed: {e}")
             return web.json_response({"ok": False, "error": str(e)}, status=400)
 
+    async def _api_import_queue(self, request: web.Request) -> web.Response:
+        """Import a queue JSON file and append items after existing ones, preserving order.
+
+        Accepts either application/json body or multipart/form-data with a single file field named 'file'.
+        """
+        try:
+            # Parse JSON payload (supports both raw JSON and multipart file upload containing JSON)
+            data = None
+            ctype = (request.headers.get('Content-Type') or '').lower()
+            if 'application/json' in ctype:
+                try:
+                    data = await request.json()
+                except Exception:
+                    data = None
+            if data is None:
+                # Try multipart
+                reader = await request.multipart()
+                if reader is not None:
+                    async for part in reader:
+                        if part.name == 'file':
+                            try:
+                                raw = await part.read(decode=True)
+                            except Exception:
+                                raw = await part.read()
+                            try:
+                                text = raw.decode('utf-8', errors='replace') if isinstance(raw, (bytes, bytearray)) else str(raw)
+                                data = json.loads(text)
+                            except Exception:
+                                data = None
+                            break
+
+            if not isinstance(data, dict):
+                return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+            items = data.get('items')
+            if not isinstance(items, list):
+                return web.json_response({"ok": False, "error": "Missing items[]"}, status=400)
+
+            # Normalize imported items and enqueue after existing ones
+            from server import PromptServer
+            import execution
+            q = PromptServer.instance.prompt_queue
+
+            # Snapshot current queue length and max number to compute appended numbers
+            with q.mutex:
+                try:
+                    existing = list(q.queue)
+                except Exception:
+                    existing = []
+                try:
+                    max_num = max((it[0] for it in existing), default=0)
+                except Exception:
+                    max_num = 0
+
+            appended = []
+            server_instance = PromptServer.instance
+            for item in items:
+                try:
+                    pid = str(item.get('prompt_id')) if item.get('prompt_id') is not None else None
+                    workflow = item.get('workflow')
+                    if not pid or workflow is None:
+                        continue
+                    # De-duplicate: skip if already present in in-memory queue
+                    present = False
+                    with q.mutex:
+                        try:
+                            present = any(str(it[1]) == pid for it in q.queue)
+                        except Exception:
+                            present = False
+                    if present:
+                        continue
+
+                    # Persist to DB (if not already)
+                    try:
+                        self.db.add_job(pid, workflow, priority=int(item.get('priority') or 0))
+                    except Exception:
+                        pass
+
+                    # Validate normalized prompt for execution
+                    try:
+                        prompt = workflow
+                        if isinstance(prompt, dict):
+                            # Clean metadata fields that are not part of executable nodes
+                            prompt = dict(prompt)
+                            prompt.pop('name', None)
+                            if 'workflow' in prompt and isinstance(prompt['workflow'], dict):
+                                inner = dict(prompt['workflow'])
+                                inner.pop('name', None)
+                                prompt = inner
+                    except Exception:
+                        prompt = workflow
+
+                    valid, err, outputs_to_execute, node_errors = await execution.validate_prompt(pid, prompt, None)
+                    if not valid:
+                        # Mark failed import for this id but continue others
+                        try:
+                            self.db.update_job_status(pid, 'failed', error=(err or {}).get('message') if isinstance(err, dict) else str(err))
+                        except Exception:
+                            pass
+                        continue
+
+                    # Assign increasing numbers after current max to append at end
+                    with q.mutex:
+                        number = max_num + 1
+                        max_num = number
+                        extra_data = {}
+                        q.queue.append((number, pid, prompt, extra_data, outputs_to_execute))
+                        heapq.heapify(q.queue)
+                        try:
+                            q.server.queue_updated()
+                        except Exception:
+                            pass
+                    appended.append(pid)
+                except Exception:
+                    continue
+
+            return web.json_response({"ok": True, "imported": appended, "count": len(appended)})
+        except Exception as e:
+            logging.warning(f"PersistentQueue import failed: {e}")
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
     async def _api_delete(self, request: web.Request) -> web.Response:
         try:
             from server import PromptServer

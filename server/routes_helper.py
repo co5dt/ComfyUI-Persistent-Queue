@@ -11,6 +11,8 @@ class RoutesHelper:
     def register(self, manager: "PersistentQueueManager") -> None:
         routes = [
             web.get('/api/pqueue', manager._api_get_pqueue),
+            web.get('/api/pqueue/export', manager._api_export_queue),
+            web.post('/api/pqueue/import', manager._api_import_queue),
             web.get('/api/pqueue/history', manager._api_get_history),
             web.get('/api/pqueue/history/thumb/{history_id:\\d+}', manager._api_get_history_thumb),
             web.get('/api/pqueue/preview', manager._api_preview_image),
