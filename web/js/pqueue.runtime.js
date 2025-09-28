@@ -35,7 +35,24 @@
             state.db_pending = queue.db_pending || [];
             // Server no longer sends normalized progress; keep existing values until sockets update
             state.running_progress = state.running_progress || {};
+            // Store previous sampler counts to detect changes
+            const prevSamplerCounts = state.samplerCountById || {};
+            // Always update sampler counts from server to ensure we have fresh data
             state.samplerCountById = queue.sampler_count_by_id || {};
+            
+            // Reset progress state if sampler count changed for any running job
+            try {
+                Object.entries(state.samplerCountById).forEach(([pid, count]) => {
+                    const prevCount = prevSamplerCounts[pid];
+                    if (prevCount !== undefined && prevCount !== count) {
+                        // Sampler count changed, reset progress tracking
+                        delete state.progressBaseById[pid];
+                        delete state.progressLastAggById[pid];
+                        state.running_progress[pid] = 0; // Reset to 0 instead of deleting
+                    }
+                });
+            } catch (err) { /* noop */ }
+            
             // Initialize client-side normalization state for socket updates
             state.progressBaseById = state.progressBaseById || {};
             state.progressLastAggById = state.progressLastAggById || {};
@@ -480,6 +497,11 @@
                     const pid = String(payload.prompt_id);
                     const num = Number(state.samplerCountById?.[pid]) || 0;
                     const agg = Progress.computeAggregate(payload.nodes); // 0..1 for current node set
+                    
+                    // Only update progress if we have actual progress data (agg > 0)
+                    // This prevents showing 100% when model is still loading
+                    if (agg <= 0) return;
+                    
                     if (num > 0) {
                         const share = 1 / Math.max(1, num);
                         let base = Number(state.progressBaseById?.[pid]);
@@ -519,6 +541,8 @@
                     if (state.progressBaseById) delete state.progressBaseById[pid];
                     if (state.progressLastAggById) delete state.progressLastAggById[pid];
                     if (state.running_progress) delete state.running_progress[pid];
+                    // Initialize progress to 0 to prevent showing stale values
+                    state.running_progress[pid] = 0;
                     // Force a refresh to get updated sampler counts
                     refresh({ skipIfBusy: true });
                 } catch (err) { /* noop */ }
@@ -532,6 +556,8 @@
                         if (state.samplerCountById && state.samplerCountById[pid]) {
                             delete state.samplerCountById[pid];
                         }
+                        // Ensure progress starts at 0
+                        state.running_progress[pid] = 0;
                     }
                     // Always refresh on execution start to get fresh data
                     refresh({ skipIfBusy: false });
