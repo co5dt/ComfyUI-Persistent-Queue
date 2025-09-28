@@ -100,10 +100,12 @@ class QueueDatabase:
                 ''',
                 (prompt_id, json.dumps(workflow), priority, datetime.now()),
             )
+            conn.commit()
 
     def remove_job(self, prompt_id: str) -> None:
         with self._get_conn() as conn:
             conn.execute('DELETE FROM queue_items WHERE prompt_id = ?', (prompt_id,))
+            conn.commit()
 
     def get_job(self, prompt_id: str) -> Optional[Dict[str, Any]]:
         with self._get_conn() as conn:
@@ -144,10 +146,12 @@ class QueueDatabase:
                     ''',
                     (status, datetime.now(), error, prompt_id),
                 )
+            conn.commit()
 
     def update_job_priority(self, prompt_id: str, new_priority: int) -> None:
         with self._get_conn() as conn:
             conn.execute('UPDATE queue_items SET priority = ? WHERE prompt_id = ?', (new_priority, prompt_id))
+            conn.commit()
 
     def update_job_name(self, prompt_id: str, new_name: str) -> bool:
         """Update the human-friendly name in the stored workflow JSON.
@@ -173,6 +177,7 @@ class QueueDatabase:
                     wf['name'] = str(new_name)
             updated = json.dumps(wf) if wf is not None else None
             conn.execute('UPDATE queue_items SET workflow = ? WHERE prompt_id = ?', (updated, prompt_id))
+            conn.commit()
             return True
 
     def add_history(
@@ -241,6 +246,7 @@ class QueueDatabase:
                     status,
                 ),
             )
+            conn.commit()
             return int(cur.lastrowid)
 
     def save_history_thumbnails(self, history_id: int, thumbs: List[Dict[str, Any]]) -> None:
@@ -263,6 +269,7 @@ class QueueDatabase:
                         t.get('data'),
                     )
                 )
+            conn.commit()
 
     def get_history_thumbnail(self, history_id: int, idx: int = 0) -> Optional[Dict[str, Any]]:
         with self._get_conn() as conn:
@@ -496,6 +503,7 @@ class QueueDatabase:
                     'UPDATE job_history SET duration_seconds = ?, created_at = ?, completed_at = ? WHERE id = ?',
                     (dur, started, completed, r['jid'])
                 )
+            conn.commit()
         except Exception:
             # Ignore errors; not critical
             return
