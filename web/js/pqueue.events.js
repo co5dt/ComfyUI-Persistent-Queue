@@ -89,10 +89,15 @@
         async togglePause() {
             refreshRefs();
             try {
-                if (state.paused) await API.resume();
+                const wasPaused = !!state.paused;
+                if (wasPaused) await API.resume();
                 else await API.pause();
-                setStatusMessage(state.paused ? "Resuming queue…" : "Pausing queue…");
+                setStatusMessage(wasPaused ? "Resuming queue…" : "Pausing queue…");
                 await refresh({ force: true });
+                // Additional delayed refresh to catch first job pickup after resume (worker thread timing)
+                if (wasPaused) {
+                    window.setTimeout(() => { try { refresh({ force: true }); } catch (err) { console.warn("pqueue delayed refresh failed", err); } }, 500);
+                }
             } catch (err) {
                 console.error("pqueue: toggle pause failed", err);
                 state.error = err?.message || "Failed to toggle queue";
