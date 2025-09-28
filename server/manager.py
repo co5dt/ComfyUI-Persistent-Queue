@@ -239,21 +239,44 @@ class PersistentQueueManager:
         server_instance = PromptServer.instance
 
         pending_jobs = self.db.get_pending_jobs()
+        logging.info(f"PersistentQueue: Found {len(pending_jobs)} pending jobs to restore on startup")
+        restored_count = 0
+        failed_restores = []
         for job in pending_jobs:
             try:
                 prompt_id = job["prompt_id"]
                 workflow_json = job["workflow"]
                 prompt = json.loads(workflow_json) if isinstance(workflow_json, str) else workflow_json
+                # Robust normalization: clean extraneous keys and extract inner workflow if present
+                if isinstance(prompt, dict):
+                    prompt.pop('name', None)  # Remove top-level name (non-node key)
+                    if 'workflow' in prompt and isinstance(prompt['workflow'], dict):
+                        inner = prompt['workflow']
+                        inner.pop('name', None)  # Clean name from inner if added
+                        prompt = inner
                 valid, err, outputs_to_execute, node_errors = await execution.validate_prompt(prompt_id, prompt, None)
                 if valid:
                     number = server_instance.number
                     server_instance.number += 1
                     extra_data = {}
                     server_instance.prompt_queue.put((number, prompt_id, prompt, extra_data, outputs_to_execute))
+                    restored_count += 1
+                    logging.info(f"PersistentQueue: Successfully restored job {prompt_id} to queue")
                 else:
-                    self.db.update_job_status(prompt_id, 'failed', error=(err or {}).get('message') if isinstance(err, dict) else str(err))
+                    error_msg = (err or {}).get('message') if isinstance(err, dict) else str(err)
+                    self.db.update_job_status(prompt_id, 'failed', error=error_msg)
+                    failed_restores.append((prompt_id, error_msg))
+                    logging.warning(f"PersistentQueue: Failed to restore job {prompt_id}: {error_msg}")
             except Exception as e:
-                logging.debug(f"PersistentQueue restore job failed: {e}")
+                logging.error(f"PersistentQueue: Exception during restore of job {job.get('prompt_id', 'unknown')}: {e}")
+                failed_restores.append((job.get('prompt_id', 'unknown'), str(e)))
+
+        if restored_count > 0:
+            logging.info(f"PersistentQueue: Restored {restored_count} jobs to queue")
+        if failed_restores:
+            logging.warning(f"PersistentQueue: {len(failed_restores)} jobs failed to restore: {failed_restores}")
+        if len(pending_jobs) == 0:
+            logging.info("PersistentQueue: No pending jobs to restore on startup")
 
     # API Routes
     async def _api_get_pqueue(self, request: web.Request) -> web.Response:
