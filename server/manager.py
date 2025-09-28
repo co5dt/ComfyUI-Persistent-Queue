@@ -301,7 +301,8 @@ class PersistentQueueManager:
                 try:
                     # Always fetch fresh workflow from DB for running jobs to avoid stale prompt data
                     # This ensures we get the correct sampler count even if the workflow was modified
-                    sampler_count_by_id[pid] = int(self._get_total_samplers(pid, None))
+                    prompt = running_prompts[pid]
+                    sampler_count_by_id[pid] = int(self._get_total_samplers(pid, prompt))
                 except Exception:
                     pass
         except Exception:
