@@ -17,8 +17,12 @@
             ]);
             rows.push(placeholder);
         } else {
-            state.queue_running.forEach((item, index) => {
+            // Deduplicate by prompt_id in case upstream includes multiple entries
+            const seen = new Set();
+            state.queue_running.forEach((item, indexRaw) => {
                 const pid = item[1];
+                if (seen.has(String(pid))) return; seen.add(String(pid));
+                const index = seen.size - 1;
                 const fraction = Math.max(0, Math.min(1, Number(state.running_progress?.[pid]) || 0));
                 const workflowName = state.workflowNameCache.get(pid) || pid;
                 const meta = UI.el("div", { class: "pqueue-item__meta" }, [

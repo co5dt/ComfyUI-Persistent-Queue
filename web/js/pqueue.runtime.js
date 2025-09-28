@@ -17,10 +17,42 @@
                 API.getHistoryPaginated(state.historyPaging?.params || { sort_by: "id", sort_dir: "desc", limit: 60 })
             ]);
             state.paused = !!queue.paused;
-            state.queue_running = queue.queue_running || [];
+            const dedupByPid = (arr) => {
+                try {
+                    const seen = new Set();
+                    const out = [];
+                    (arr || []).forEach((it) => {
+                        const pid = String(it?.[1] ?? "");
+                        if (!pid || seen.has(pid)) return;
+                        seen.add(pid);
+                        out.push(it);
+                    });
+                    return out;
+                } catch (err) { return arr || []; }
+            };
+            state.queue_running = dedupByPid(queue.queue_running || []);
             state.queue_pending = queue.queue_pending || [];
             state.db_pending = queue.db_pending || [];
-            state.running_progress = queue.running_progress || {};
+            // Server no longer sends normalized progress; keep existing values until sockets update
+            state.running_progress = state.running_progress || {};
+            state.samplerCountById = queue.sampler_count_by_id || {};
+            // Initialize client-side normalization state for socket updates
+            state.progressBaseById = state.progressBaseById || {};
+            state.progressLastAggById = state.progressLastAggById || {};
+            try {
+                Object.entries(state.running_progress).forEach(([pid, norm]) => {
+                    const num = Number(state.samplerCountById?.[pid]) || 0;
+                    if (num > 0) {
+                        const share = 1 / Math.max(1, num);
+                        const n = Math.max(0, Math.min(1, Number(norm) || 0));
+                        const baseSamplers = Math.floor((n / share) + 1e-6);
+                        const base = Math.min(1, baseSamplers * share);
+                        const lastAgg = Math.max(0, Math.min(1, (n - base) / share));
+                        state.progressBaseById[pid] = base;
+                        state.progressLastAggById[pid] = lastAgg;
+                    }
+                });
+            } catch (err) { /* noop */ }
             state.history = (paged && Array.isArray(paged.history)) ? paged.history : [];
             state.historyTotal = (paged && typeof paged.total === 'number') ? paged.total : null;
             state.error = null;
@@ -260,6 +292,29 @@
         } catch (err) { return false; }
     }
 
+    function countSamplersFromWorkflow(workflow) {
+        try {
+            let wf = workflow;
+            if (!wf) return 0;
+            if (typeof wf === 'string') {
+                try { wf = JSON.parse(wf); } catch (err) { return 0; }
+            }
+            let nodes = [];
+            if (wf && typeof wf === 'object') {
+                if (Array.isArray(wf.nodes)) {
+                    nodes = wf.nodes.filter((n) => n && typeof n === 'object');
+                } else {
+                    try { Object.values(wf).forEach((v) => { if (v && typeof v === 'object' && (v.class_type || v.class)) nodes.push(v); }); } catch (err) {}
+                }
+            }
+            let count = 0;
+            nodes.forEach((n) => {
+                try { const ct = String(n.class_type || n.class || '').toLowerCase(); if (ct.includes('sampler')) count += 1; } catch (err) {}
+            });
+            return count;
+        } catch (err) { return 0; }
+    }
+
     function installPromptNameInjector() {
         try {
             PQ.nameInjector = PQ.nameInjector || { apiWrapped: false, fetchWrapped: false, intervalId: null, namePollId: null };
@@ -422,15 +477,52 @@
                 try {
                     const payload = event?.detail;
                     if (!payload?.prompt_id || !payload.nodes) return;
-                    state.running_progress[payload.prompt_id] = Progress.computeAggregate(payload.nodes);
+                    const pid = String(payload.prompt_id);
+                    const num = Number(state.samplerCountById?.[pid]) || 0;
+                    const agg = Progress.computeAggregate(payload.nodes); // 0..1 for current node set
+                    if (num > 0) {
+                        const share = 1 / Math.max(1, num);
+                        let base = Number(state.progressBaseById?.[pid]);
+                        let last = Number(state.progressLastAggById?.[pid]);
+                        if (!Number.isFinite(base)) base = 0;
+                        if (!Number.isFinite(last)) last = 0;
+                        // Detect wrap-around between samplers
+                        if (last >= 0.9 && agg <= 0.1) {
+                            base = Math.min(1, base + share);
+                        }
+                        // Guard: never allow a sudden jump to full share at t=0
+                        const rawClamped = Math.max(0, Math.min(1, agg));
+                        let normalized = Math.min(1, Math.max(0, base + (rawClamped * share)));
+                        const prevNorm = Number(state.running_progress?.[pid]) || 0;
+                        if (normalized < prevNorm) normalized = prevNorm; // enforce monotonic UI
+                        state.progressBaseById[pid] = base;
+                        state.progressLastAggById[pid] = agg;
+                        state.running_progress[pid] = normalized;
+                        UI.updateProgressBars();
+                        return;
+                    }
+                    // Fallback: aggregate raw nodes when sampler count unknown or zero
+                    {
+                        const prevNorm = Number(state.running_progress?.[pid]) || 0;
+                        state.running_progress[pid] = Math.max(prevNorm, agg);
+                    }
                     UI.updateProgressBars();
                 } catch (err) { /* noop */ }
             };
 
             const onLifecycle = () => refresh({ skipIfBusy: true });
+            const onExecuting = (event) => {
+                try {
+                    const pid = String(event?.detail?.prompt_id || event?.detail?.data?.prompt_id || '');
+                    if (!pid) return;
+                    if (state.progressBaseById) delete state.progressBaseById[pid];
+                    if (state.progressLastAggById) delete state.progressLastAggById[pid];
+                    if (state.running_progress) delete state.running_progress[pid];
+                } catch (err) { /* noop */ }
+            };
 
             api.addEventListener("progress_state", onProgress);
-            api.addEventListener("executing", onProgress);
+            api.addEventListener("executing", onExecuting);
             api.addEventListener("status", onLifecycle);
             api.addEventListener("execution_start", onLifecycle);
             api.addEventListener("executed", onLifecycle);
