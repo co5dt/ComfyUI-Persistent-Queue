@@ -50,7 +50,7 @@ class PersistentQueueManager:
         # Install queue hooks
         self._hooks = QueueHookManager(
             is_paused_fn=lambda: self.paused,
-            on_job_started=lambda prompt_id: self.db.update_job_status(prompt_id, 'running'),
+            on_job_started=lambda prompt_id: self._on_job_started(prompt_id),
             on_task_done=self._on_task_done_persist,
             should_run_when_paused=self._is_prompt_allowed_while_paused,
         )
@@ -151,6 +151,19 @@ class PersistentQueueManager:
                         logging.info("PersistentQueue: Finished all selected jobs; queue remains paused.")
         except Exception:
             pass
+    
+    def _on_job_started(self, prompt_id: str):
+        """Called when a job transitions to running status."""
+        try:
+            # Update job status in database
+            self.db.update_job_status(prompt_id, 'running')
+            
+            # Clear cached sampler count to force recalculation with fresh data
+            if hasattr(self, '_samplers_total') and isinstance(self._samplers_total, dict):
+                self._samplers_total.pop(str(prompt_id), None)
+                
+        except Exception as e:
+            logging.debug(f"PersistentQueue _on_job_started failed: {e}")
     
     def _on_prompt(self, json_data: Dict[str, Any]) -> Dict[str, Any]:
         try:
