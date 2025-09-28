@@ -31,6 +31,10 @@ class PersistentQueueManager:
         self._hooks: Optional[QueueHookManager] = None
         # IDs allowed to run while paused (run-selected mode)
         self._run_selected_remaining: Set[str] = set()
+        # Accumulate normalized progress across multiple sampler nodes per prompt
+        self._progress_accum: Dict[str, float] = {}
+        self._progress_last_raw: Dict[str, float] = {}
+        self._samplers_total: Dict[str, int] = {}
 
     def initialize(self) -> None:
         """Install hooks and API routes after PromptServer is created."""
@@ -157,6 +161,16 @@ class PersistentQueueManager:
                     import uuid
                     prompt_id = uuid.uuid4().hex
                     json_data["prompt_id"] = prompt_id
+                # Reset any cached progress/sampler state for this prompt id (new run)
+                try:
+                    if hasattr(self, '_progress_accum') and isinstance(self._progress_accum, dict):
+                        self._progress_accum.pop(str(prompt_id), None)
+                    if hasattr(self, '_progress_last_raw') and isinstance(self._progress_last_raw, dict):
+                        self._progress_last_raw.pop(str(prompt_id), None)
+                    if hasattr(self, '_samplers_total') and isinstance(self._samplers_total, dict):
+                        self._samplers_total.pop(str(prompt_id), None)
+                except Exception:
+                    pass
                 # Optional: extract suggested name from extra_data
                 try:
                     extra = json_data.get('extra_data') or {}
@@ -237,27 +251,44 @@ class PersistentQueueManager:
             queued_sorted = sorted(queued, key=lambda it: (it[0], str(it[1])))
         except Exception:
             queued_sorted = queued
-        # Compute per-prompt progress (0..1) using global progress registry when available
+        # Compute per-prompt progress on client via sockets; keep server map minimal
         progress_map = {}
+        # Build quick lookup for running prompts
+        running_prompts: Dict[str, Any] = {}
         try:
-            from comfy_execution.progress import get_progress_state
-            reg = get_progress_state()
-            if reg is not None and getattr(reg, 'nodes', None) and reg.prompt_id:
-                total_max = 0.0
-                total_val = 0.0
-                for st in reg.nodes.values():
+            for it in running or []:
+                try:
+                    pid = str(it[1])
+                    running_prompts[pid] = it[2]
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Clear accumulators for prompts that are no longer running
+        try:
+            current_running_ids = set(running_prompts.keys())
+            for pid in list(self._progress_accum.keys()):
+                if pid not in current_running_ids:
                     try:
-                        mv = float(st.get('max', 1.0) or 1.0)
-                        vv = float(st.get('value', 0.0) or 0.0)
+                        del self._progress_accum[pid]
                     except Exception:
-                        mv = 1.0
-                        vv = 0.0
-                    if mv <= 0:
-                        mv = 1.0
-                    total_max += mv
-                    total_val += max(0.0, min(vv, mv))
-                frac = (total_val / total_max) if total_max > 0 else 0.0
-                progress_map[reg.prompt_id] = max(0.0, min(1.0, frac))
+                        pass
+                    try:
+                        del self._progress_last_raw[pid]
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # Intentionally avoid server-side progress normalization; client will handle via sockets
+
+        # Provide sampler counts for running prompts so frontend can normalize socket progress
+        sampler_count_by_id: Dict[str, int] = {}
+        try:
+            for pid, prompt in running_prompts.items():
+                try:
+                    sampler_count_by_id[pid] = int(self._get_total_samplers(pid, prompt))
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -267,6 +298,7 @@ class PersistentQueueManager:
             "queue_running": running,
             "queue_pending": queued_sorted,
             "running_progress": progress_map,
+            "sampler_count_by_id": sampler_count_by_id,
             # Provide DB rows for ALL visible queue items (pending + running) so UI
             # can derive labels (including renamed names) even after status changes
             "db_by_id": self._build_db_lookup_for_queue_items(running, queued_sorted),
@@ -761,5 +793,71 @@ class PersistentQueueManager:
 
             img.save(cache_path, **save_kwargs)
         return cache_path
+
+    def _count_samplers_from_prompt(self, prompt: Optional[Any]) -> int:
+        """Heuristic: count nodes that look like samplers in a ComfyUI prompt JSON.
+
+        Supports both dict-of-nodes and list-in-'nodes' formats.
+        """
+        try:
+            if prompt is None:
+                return 0
+            nodes: List[Dict[str, Any]] = []
+            if isinstance(prompt, dict) and isinstance(prompt.get('nodes'), list):
+                nodes = [n for n in prompt.get('nodes') if isinstance(n, dict)]
+            elif isinstance(prompt, dict):
+                # dict keyed by node_id -> {class_type, ...}
+                for v in prompt.values():
+                    if isinstance(v, dict) and ('class_type' in v or 'class' in v):
+                        nodes.append(v)
+            count = 0
+            for n in nodes:
+                try:
+                    ct = str(n.get('class_type') or n.get('class') or '')
+                    if not ct:
+                        continue
+                    # Broad match: any class type containing 'Sampler'
+                    if 'sampler' in ct.lower():
+                        count += 1
+                except Exception:
+                    pass
+            return count
+        except Exception:
+            return 0
+
+    def _get_total_samplers(self, pid: str, prompt: Optional[Any]) -> int:
+        """Return cached or computed total sampler count for a prompt id.
+
+        Prefer prompt JSON if available; otherwise fall back to DB stored workflow.
+        Cache the result to avoid repeated parsing.
+        """
+        try:
+            if pid in self._samplers_total and int(self._samplers_total.get(pid) or 0) > 0:
+                return int(self._samplers_total[pid])
+        except Exception:
+            pass
+        total = 0
+        try:
+            total = int(self._count_samplers_from_prompt(prompt) or 0)
+        except Exception:
+            total = 0
+        if total <= 0:
+            try:
+                row = self.db.get_job(pid)
+                if row and row.get('workflow'):
+                    try:
+                        wf = row['workflow']
+                        wf_obj = json.loads(wf) if isinstance(wf, str) else wf
+                        total = int(self._count_samplers_from_prompt(wf_obj) or 0)
+                    except Exception:
+                        total = 0
+            except Exception:
+                total = 0
+        # Do not force to 1; return 0 if not determinable so clients can fall back safely
+        try:
+            self._samplers_total[pid] = int(total)
+        except Exception:
+            pass
+        return int(total)
 
 
