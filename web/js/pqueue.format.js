@@ -8,6 +8,7 @@
             let totalMax = 0;
             let totalVal = 0;
             Object.values(nodes ?? {}).forEach((st) => {
+                if (st.state !== 'running') return;
                 const max = Math.max(1, Number(st?.max ?? 1));
                 const val = Math.max(0, Math.min(Number(st?.value ?? 0), max));
                 totalMax += max;
