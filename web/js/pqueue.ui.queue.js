@@ -5,6 +5,7 @@
     const API = (window.PQueue && window.PQueue.API) || window.API;
     const UI = (window.PQueue && window.PQueue.UI) || (window.PQueue = (window.PQueue || {}), window.PQueue.UI = {}, window.PQueue.UI);
     const Format = (window.PQueue && window.PQueue.Format) || window.Format;
+    const Events = (window.PQueue && window.PQueue.Events) || window.Events;
     const setStatusMessage = (window.PQueue && window.PQueue.setStatusMessage) || window.setStatusMessage;
 
     // Metrics card removed; metrics now live within the toolbar summary.
@@ -79,6 +80,22 @@
         state.dom.pendingCount = footerCount;
         state.dom.pendingUpdated = footerUpdated;
 
+        const exportBtn = UI.button({
+            id: "pqueue-export",
+            icon: "ti ti-download",
+            variant: "ghost",
+            subtle: true,
+            title: "Export queue",
+            onClick: () => { try { (Events && Events.exportQueueToFile) ? Events.exportQueueToFile() : null; } catch (err) {} },
+        });
+        const importBtn = UI.button({
+            id: "pqueue-import",
+            icon: "ti ti-upload",
+            variant: "ghost",
+            subtle: true,
+            title: "Import queue",
+            onClick: () => { try { (Events && Events.openImportDialog) ? Events.openImportDialog() : null; } catch (err) {} },
+        });
         const deleteSelected = UI.button({
             id: "pqueue-delete-selected",
             icon: "ti ti-trash",
@@ -91,7 +108,7 @@
 
         const footer = UI.el("div", { class: "pqueue-table__footer" }, [
             UI.el("div", { class: "pqueue-table__footer-left" }, [footerCount, footerUpdated]),
-            UI.el("div", { class: "pqueue-table__footer-right" }, [deleteSelected]),
+            UI.el("div", { class: "pqueue-table__footer-right" }, [exportBtn, importBtn, deleteSelected]),
         ]);
 
         // Build collapsible card (mirrors metrics behavior)

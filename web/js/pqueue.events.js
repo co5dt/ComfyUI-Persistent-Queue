@@ -52,6 +52,69 @@
             } catch (err) { /* noop */ }
         },
 
+        async exportQueueToFile() {
+            refreshRefs();
+            try {
+                const data = await API.exportQueue();
+                const text = JSON.stringify(data, null, 2);
+                const blob = new Blob([text], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const dt = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const fname = `pqueue-${dt.getFullYear()}${pad(dt.getMonth()+1)}${pad(dt.getDate())}-${pad(dt.getHours())}${pad(dt.getMinutes())}${pad(dt.getSeconds())}.json`;
+                a.download = fname;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                setStatusMessage("Queue exported");
+            } catch (err) {
+                console.error("pqueue: export failed", err);
+                state.error = err?.message || "Failed to export queue";
+                UI.updateToolbarStatus();
+            }
+        },
+
+        openImportDialog() {
+            refreshRefs();
+            try {
+                let input = document.getElementById('pqueue-import-input');
+                if (!input) {
+                    input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'application/json,.json';
+                    input.id = 'pqueue-import-input';
+                    input.style.display = 'none';
+                    document.body.appendChild(input);
+                    input.addEventListener('change', Events.handleImportSelected, { once: false });
+                }
+                input.value = '';
+                input.click();
+            } catch (err) { /* noop */ }
+        },
+
+        async handleImportSelected(ev) {
+            refreshRefs();
+            try {
+                const input = ev.currentTarget || ev.target;
+                const file = input?.files?.[0];
+                if (!file) return;
+                const result = await API.importQueue(file);
+                const cnt = Number(result?.count || (Array.isArray(result?.imported) ? result.imported.length : 0));
+                setStatusMessage(`Imported ${cnt} item${cnt === 1 ? '' : 's'}`);
+                await refresh({ force: true });
+                // Clear selection after import
+                state.selectedPending.clear();
+                UI.updateSelectionUI();
+            } catch (err) {
+                console.error("pqueue: import failed", err);
+                state.error = err?.message || "Failed to import queue";
+                UI.updateToolbarStatus();
+            }
+        },
+
         async syncLatestForAsc() {
             refreshRefs();
             try {

@@ -22,6 +22,22 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ order }),
             }),
+        exportQueue: () =>
+            fetch("/api/pqueue/export", { method: "GET" }).then((r) => r.json()),
+        importQueue: (fileOrJson) => {
+            try {
+                if (fileOrJson instanceof File || fileOrJson instanceof Blob) {
+                    const form = new FormData();
+                    form.append("file", fileOrJson, fileOrJson.name || "queue.json");
+                    return fetch("/api/pqueue/import", { method: "POST", body: form }).then((r) => r.json());
+                }
+            } catch (err) { /* fall through to JSON */ }
+            return fetch("/api/pqueue/import", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(fileOrJson),
+            }).then((r) => r.json());
+        },
         setPriority: (prompt_id, priority) =>
             fetch("/api/pqueue/priority", {
                 method: "PATCH",
